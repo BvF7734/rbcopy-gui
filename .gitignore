@@ -25,8 +25,26 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Environment files
+# Environment / secrets
 .env
+.env.*
+!.env.example
+
+# Private keys, certificates, and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.der
+credentials.*
+config/secrets.*
+secrets.*
+*_rsa
+*_dsa
+*_ecdsa
+*_ed25519
 
 # Editor
 .vscode/
