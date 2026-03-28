@@ -1,0 +1,271 @@
+[
+  {
+    "name": "Robust Generic Copy",
+    "description": "A reliable way to copy all files and folders, perfect for everyday backups.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/E": true,
+      "/Z": true,
+      "/J": true,
+      "/NP": true
+    },
+    "params": {
+      "/W": [
+        true,
+        "5"
+      ],
+      "/R": [
+        true,
+        "3"
+      ],
+      "/MT": [
+        true,
+        "8"
+      ]
+    }
+  },
+  {
+    "name": "Mirror Sync",
+    "description": "Makes the destination folder exactly match the source folder by copying new files and deleting old ones.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/MIR": true,
+      "/NP": true,
+      "/NDL": true
+    },
+    "params": {
+      "/W": [
+        true,
+        "1"
+      ],
+      "/R": [
+        true,
+        "1"
+      ],
+      "/MT": [
+        true,
+        "8"
+      ]
+    }
+  },
+  {
+    "name": "Safe Backup",
+    "description": "Copies all files, folders, and security settings safely to a new location.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/E": true,
+      "/COPYALL": true,
+      "/NP": true
+    },
+    "params": {
+      "/W": [
+        true,
+        "3"
+      ],
+      "/R": [
+        true,
+        "3"
+      ],
+      "/MT": [
+        true,
+        "8"
+      ]
+    }
+  },
+  {
+    "name": "Large File Network",
+    "description": "Optimized for moving very large files across a network connection without failing.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/E": true,
+      "/Z": true,
+      "/J": true
+    },
+    "params": {
+      "/W": [
+        true,
+        "5"
+      ],
+      "/R": [
+        true,
+        "5"
+      ],
+      "/MT": [
+        true,
+        "8"
+      ]
+    }
+  },
+  {
+    "name": "Move Files",
+    "description": "Moves files to a new location and deletes them from the original source.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/MOVE": true,
+      "/E": true
+    },
+    "params": {
+      "/W": [
+        true,
+        "1"
+      ],
+      "/R": [
+        true,
+        "1"
+      ]
+    }
+  },
+  {
+    "name": "Throttled Network Copy",
+    "description": "Copies files slowly so it doesn't slow down your internet or network connection.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/E": true,
+      "/Z": true
+    },
+    "params": {
+      "/IPG": [
+        true,
+        "5"
+      ],
+      "/W": [
+        true,
+        "2"
+      ],
+      "/R": [
+        true,
+        "2"
+      ]
+    }
+  },
+  {
+    "name": "Background Auto-Sync",
+    "description": "Runs in the background and automatically copies new files as they change.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/MIR": true,
+      "/NP": true
+    },
+    "params": {
+      "/MON": [
+        true,
+        "1"
+      ],
+      "/MOT": [
+        true,
+        "10"
+      ]
+    }
+  },
+  {
+    "name": "Recent Files Only (Last 7 Days)",
+    "description": "Only copies files that have been created or changed in the past week.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/E": true
+    },
+    "params": {
+      "/MAXAGE": [
+        true,
+        "7"
+      ]
+    }
+  },
+  {
+    "name": "Backup with Detailed Logging",
+    "description": "Creates a backup and saves a text file detailing everything that happened.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/E": true,
+      "/ZB": true,
+      "/NP": true,
+      "/V": true
+    },
+    "params": {
+      "/LOG": [
+        true,
+        "backup_log.txt"
+      ],
+      "/W": [
+        true,
+        "5"
+      ],
+      "/R": [
+        true,
+        "2"
+      ]
+    }
+  },
+  {
+    "name": "Verify (Report Only)",
+    "description": "Checks for differences between two folders without actually copying or deleting anything.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/L": true,
+      "/E": true,
+      "/NJH": true,
+      "/NJS": true
+    },
+    "params": {}
+  },
+  {
+    "name": "Exclude Large Files (>100MB)",
+    "description": "Copies everything except files that are larger than 100 megabytes.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/E": true,
+      "/ZB": true
+    },
+    "params": {
+      "/MAX": [
+        true,
+        "104857600"
+      ]
+    }
+  },
+  {
+    "name": "Server Migration (Full Security)",
+    "description": "An advanced copy that keeps all file ownership and security permissions intact.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/E": true,
+      "/COPYALL": true,
+      "/ZB": true,
+      "/DCOPY:DAT": true
+    },
+    "params": {
+      "/MT": [
+        true,
+        "16"
+      ]
+    }
+  },
+  {
+    "name": "Sync Photos and Videos Only",
+    "description": "Only copies image and video files, ignoring documents and system files.",
+    "source": "",
+    "destination": "",
+    "flags": {
+      "/E": true,
+      "/XO": true
+    },
+    "params": {
+      "FILES": [
+        true,
+        "*.jpg *.png *.mp4 *.mov"
+      ]
+    }
+  }
+]

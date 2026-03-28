@@ -1,0 +1,32 @@
+# .pre-commit-config.yaml
+
+repos:
+  # 1. Official Ruff hooks for ultra-fast linting and formatting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # You can update this revision to match the Ruff version in your uv.lock
+    rev: v0.3.4
+    hooks:
+      # Run the linter and auto-fix what it can
+      - id: ruff
+        args: [ --fix ]
+      # Run the formatter (replaces Black)
+      - id: ruff-format
+
+  # 2. Local hooks using `uv` to ensure exact parity with your makefile
+  - repo: local
+    hooks:
+      - id: mypy
+        name: MyPy Type Checker
+        # We use `uv run` to ensure MyPy has access to installed type stubs
+        entry: uv run mypy rbcopy
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: tombi-format
+        name: Tombi TOML Formatter
+        entry: uv run tombi format
+        language: system
+        types: [toml]
+        # Pre-commit will automatically pass the modified TOML files to tombi
+        require_serial: true

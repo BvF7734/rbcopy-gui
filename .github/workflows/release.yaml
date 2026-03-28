@@ -1,0 +1,133 @@
+name: Release
+
+on:
+  push:
+    # Only runs when a tag matching strict semver vX.Y.Z is pushed (e.g. v1.0.0).
+    # Any other push (branches, non-conforming tags) will not trigger this workflow.
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+  lint:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: |
+          uv python install $(cat .python-version)
+          uv venv --python $(cat .python-version)
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Check Lockfile Synchronization
+        run: make lock-check
+
+      - name: Code Formatting (Ruff/Black)
+        run: make black_check
+
+      - name: Code Linting (Ruff)
+        run: make ruff_check
+
+      - name: Static Type Checking (MyPy)
+        run: make mypy_check
+
+      - name: Data Formatting (Dapperdata)
+        run: make dapperdata_check
+
+      - name: TOML Formatting (Tomlsort)
+        run: make tomlsort_check
+
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: |
+          uv python install ${{ matrix.python-version }}
+          uv venv --python ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run Tests
+        run: make pytest
+
+  build-windows:
+    name: Build Windows Executable
+    # Only build after all lint and test matrix jobs pass.
+    needs: test
+    runs-on: windows-latest
+    permissions:
+      # Write permission is required to create the GitHub Release and upload assets.
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      # github.ref_name is the short ref name for the event. On a tag push it is
+      # the tag itself (e.g. "v1.0.0"), giving us the version string with no extra
+      # parsing needed. We write it to GITHUB_ENV so every subsequent step can use
+      # ${{ env.VERSION }} without repeating the expression.
+      - name: Extract version from tag
+        shell: bash
+        run: echo "VERSION=${{ github.ref_name }}" >> "$GITHUB_ENV"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: |
+          uv python install $(Get-Content .python-version)
+          uv venv --python $(Get-Content .python-version)
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      # rbcopy.spec reads EXE_NAME via os.environ.get('EXE_NAME', 'rbcopy').
+      # Setting it here causes PyInstaller to write dist/rbcopy-<version>.exe
+      # (e.g. dist/rbcopy-v1.0.0.exe) instead of the default dist/rbcopy.exe.
+      - name: Build with PyInstaller
+        env:
+          EXE_NAME: rbcopy-${{ env.VERSION }}
+        run: uv run pyinstaller rbcopy.spec
+
+      # Creates (or updates) the GitHub Release for this tag and uploads the
+      # versioned executable as a release asset.
+      - name: Create GitHub Release and Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ env.VERSION }}
+          generate_release_notes: true
+          files: dist/rbcopy-${{ env.VERSION }}.exe

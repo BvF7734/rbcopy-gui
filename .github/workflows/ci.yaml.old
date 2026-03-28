@@ -1,0 +1,82 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: ["main", "refactor"]
+  pull_request:
+    branches: ["main", "refactor"]
+
+jobs:
+  lint:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      # Create a venv pinned to the Python version from .python-version before syncing
+      - name: Set up Python (from .python-version)
+        run: |
+          uv python install $(cat .python-version)
+          uv venv --python $(cat .python-version)
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Check Lockfile Synchronization
+        run: make lock-check
+
+      - name: Code Formatting (Ruff/Black)
+        run: make black_check
+
+      - name: Code Linting (Ruff)
+        run: make ruff_check
+
+      - name: Static Type Checking (MyPy)
+        run: make mypy_check
+
+      - name: Data Formatting (Dapperdata)
+        run: make dapperdata_check
+
+      - name: TOML Formatting (Tomlsort)
+        run: make tomlsort_check
+
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      # Create a venv pinned to the matrix Python version before syncing
+      - name: Set up Python ${{ matrix.python-version }}
+        run: |
+          uv python install ${{ matrix.python-version }}
+          uv venv --python ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Unit Tests (Pytest)
+        run: make pytest
