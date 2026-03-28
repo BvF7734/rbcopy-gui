@@ -124,6 +124,7 @@ tomlsort_check:
 #
 .PHONY: check-version
 check-version:
+	$(eval VERSION := $(shell echo "$(VERSION)" | tr '[:upper:]' '[:lower:]'))
 	@if [ -z "$(VERSION)" ]; then \
 		echo "ERROR: VERSION is required. Usage: make build VERSION=v1.0.0"; \
 		exit 1; \
@@ -162,8 +163,8 @@ lock-check:
 # Packaging
 #
 
-.PHONY: build
-build: $(PACKAGE_CHECK)
+.PHONY: package
+package: $(PACKAGE_CHECK)
 	$(UV) run python -m build
 
 .PHONY: version
