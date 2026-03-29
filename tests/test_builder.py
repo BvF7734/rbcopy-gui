@@ -855,3 +855,152 @@ def test_exit_code_label_no_check_log_for_low_codes() -> None:
     # Code 2 and 4 should not.
     assert "log" not in exit_code_label(2).lower()
     assert "log" not in exit_code_label(4).lower()
+
+
+# ---------------------------------------------------------------------------
+# build_command – targeted scenario tests
+# ---------------------------------------------------------------------------
+# The tests below are intentionally explicit about the three categories the
+# user scenario describes: normal operations, edge cases with redundant flags,
+# and missing parameter values.
+
+
+# ── Normal operations ─────────────────────────────────────────────────────
+
+
+def test_build_command_normal_source_and_destination() -> None:
+    """build_command produces the expected three-token base command for valid paths."""
+    cmd = build_command("C:/Users/backup", "D:/Backups/users", {}, {})
+    assert cmd[0] == "robocopy"
+    assert cmd[1] == "C:/Users/backup"
+    assert cmd[2] == "D:/Backups/users"
+    assert len(cmd) == 3
+
+
+def test_build_command_normal_with_common_flag_set() -> None:
+    """build_command produces a sensible everyday command (mirror + retry settings)."""
+    cmd = build_command(
+        "C:/source",
+        "D:/destination",
+        {"/MIR": True, "/NP": True},
+        {"/R": (True, "3"), "/W": (True, "10")},
+    )
+    assert "/MIR" in cmd
+    assert "/NP" in cmd
+    assert "/R:3" in cmd
+    assert "/W:10" in cmd
+
+
+def test_build_command_normal_preserves_path_order() -> None:
+    """Source always comes before destination in the built command."""
+    cmd = build_command("C:/source", "D:/destination", {}, {})
+    assert cmd.index("C:/source") < cmd.index("D:/destination")
+
+
+# ── Edge cases: redundant flag combinations ──────────────────────────────
+# build_command does NOT validate for redundancy; that is validate_command's
+# responsibility.  These tests confirm that build_command faithfully includes
+# every enabled flag so that callers can decide whether to warn or not.
+
+
+def test_build_command_includes_both_mir_and_e_when_both_enabled() -> None:
+    """/MIR and /E both appear in the command when both ticked; no silent removal."""
+    cmd = build_command("C:/src", "C:/dst", {"/MIR": True, "/E": True}, {})
+    assert "/MIR" in cmd
+    assert "/E" in cmd
+
+
+def test_build_command_includes_both_mir_and_purge_when_both_enabled() -> None:
+    """/MIR and /PURGE both appear when both ticked (/MIR supersedes /PURGE logically,
+    but build_command does not suppress redundant flags)."""
+    cmd = build_command("C:/src", "C:/dst", {"/MIR": True, "/PURGE": True}, {})
+    assert "/MIR" in cmd
+    assert "/PURGE" in cmd
+
+
+def test_build_command_includes_both_move_and_mov_when_both_enabled() -> None:
+    """/MOVE and /MOV both appear when both ticked (redundancy not stripped by build_command)."""
+    cmd = build_command("C:/src", "C:/dst", {"/MOVE": True, "/MOV": True}, {})
+    assert "/MOVE" in cmd
+    assert "/MOV" in cmd
+
+
+def test_validate_command_mir_e_warns_but_is_still_ok(tmp_path: Path) -> None:
+    """/MIR + /E is a warning-level issue, not a fatal error: ok remains True."""
+    src = tmp_path / "src"
+    src.mkdir()
+    result = validate_command(str(src), str(tmp_path / "dst"), {"/MIR": True, "/E": True}, {})
+    assert result.ok is True
+    assert any("redundant" in w.lower() or "/E" in w for w in result.warnings)
+    assert result.errors == []
+
+
+def test_validate_command_mir_e_warning_names_redundant_flag(tmp_path: Path) -> None:
+    """The redundancy warning for /MIR + /E must mention the redundant flag /E by name."""
+    src = tmp_path / "src"
+    src.mkdir()
+    result = validate_command(str(src), str(tmp_path / "dst"), {"/MIR": True, "/E": True}, {})
+    combined = " ".join(result.warnings)
+    assert "/E" in combined
+
+
+# ── Edge cases: missing parameter values ─────────────────────────────────
+
+
+def test_build_command_omits_r_when_enabled_with_blank_value() -> None:
+    """Enabling /R with an empty value must not add any /R token to the command.
+
+    robocopy would silently ignore a bare '/R:' argument; omitting it entirely
+    is the safer and more predictable behaviour.
+    """
+    cmd = build_command("C:/src", "C:/dst", {}, {"/R": (True, "")})
+    assert not any(arg.startswith("/R") for arg in cmd)
+
+
+def test_build_command_omits_w_when_enabled_with_whitespace_only_value() -> None:
+    """A whitespace-only value for /W must be treated the same as an empty value."""
+    cmd = build_command("C:/src", "C:/dst", {}, {"/W": (True, "   ")})
+    assert not any(arg.startswith("/W") for arg in cmd)
+
+
+def test_build_command_includes_r_when_enabled_with_valid_value() -> None:
+    """/R:n must appear when enabled and a numeric value is provided."""
+    cmd = build_command("C:/src", "C:/dst", {}, {"/R": (True, "5")})
+    assert "/R:5" in cmd
+
+
+def test_validate_command_warns_r_enabled_with_blank_value(tmp_path: Path) -> None:
+    """/R enabled with a blank value must produce a warning inside validate_command."""
+    src = tmp_path / "src"
+    src.mkdir()
+    result = validate_command(str(src), str(tmp_path / "dst"), {}, {"/R": (True, "")})
+    assert result.ok is True  # warning, not a fatal error
+    assert any("/R" in w for w in result.warnings)
+
+
+def test_validate_command_warns_w_enabled_with_blank_value(tmp_path: Path) -> None:
+    """/W enabled with a blank value must also produce a warning."""
+    src = tmp_path / "src"
+    src.mkdir()
+    result = validate_command(str(src), str(tmp_path / "dst"), {}, {"/W": (True, "")})
+    assert result.ok is True
+    assert any("/W" in w for w in result.warnings)
+
+
+def test_validate_command_multiple_blank_params_produce_one_warning_each(tmp_path: Path) -> None:
+    """Each enabled param with a blank value generates its own independent warning."""
+    src = tmp_path / "src"
+    src.mkdir()
+    result = validate_command(
+        str(src),
+        str(tmp_path / "dst"),
+        {},
+        {"/R": (True, ""), "/W": (True, ""), "/LEV": (True, "")},
+    )
+    assert result.ok is True
+    r_warnings = [w for w in result.warnings if "/R" in w]
+    w_warnings = [w for w in result.warnings if "/W" in w]
+    lev_warnings = [w for w in result.warnings if "/LEV" in w]
+    assert len(r_warnings) >= 1
+    assert len(w_warnings) >= 1
+    assert len(lev_warnings) >= 1

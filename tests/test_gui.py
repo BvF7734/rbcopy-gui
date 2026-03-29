@@ -664,6 +664,165 @@ def test_run_appends_warnings_to_output_before_proceeding() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Simulating a user clicking "Run" – unittest.mock walkthrough
+# ---------------------------------------------------------------------------
+# This section shows the canonical pattern for testing _run() without a live
+# Tk display, without spawning a real robocopy process, and without opening
+# any dialog boxes.
+#
+# The approach uses three layers of mocking:
+#
+#   1. _make_fake_self() – replaces the RobocopyGUI *instance* (self) with a
+#      MagicMock whose relevant attributes are pre-configured.  This sidesteps
+#      the need to create a Tk root window at all.
+#
+#   2. patch("rbcopy.gui.main_window.validate_command") – intercepts the
+#      validation step so it returns a known DryRunResult without touching
+#      the filesystem.
+#
+#   3. patch("rbcopy.gui.main_window.threading.Thread") – intercepts thread
+#      creation so the test can assert *what* would have been launched without
+#      actually blocking on a subprocess.
+#
+# Each test below focuses on one observable side-effect of a click:
+#   • Was a thread started?   (happy path)
+#   • Was a warning shown?    (validation failure)
+#   • Was a thread blocked?   (concurrent protection)
+# ---------------------------------------------------------------------------
+
+
+def test_run_button_click_happy_path() -> None:
+    """Simulates a user clicking ▶ Run with valid paths and no active flags.
+
+    The Click:
+        User fills in Source = "C:/source" and Destination = "D:/dest"
+        then clicks the Run button, which calls RobocopyGUI._run().
+
+    Expected outcome:
+        • validate_command passes (ok=True, no errors).
+        • _confirm_destructive_operation returns True (no destructive flags).
+        • build_command builds ["robocopy", "C:/source", "D:/dest"].
+        • A daemon thread is started targeting _execute with that command.
+        • No warning dialog is shown to the user.
+    """
+    from rbcopy.builder import DryRunResult
+
+    # Step 1 – configure the fake GUI instance with populated form fields.
+    fake_self = _make_fake_self()
+    fake_self.src_var.get.return_value = "C:/source"
+    fake_self.dst_var.get.return_value = "D:/dest"
+    fake_self._get_selections.return_value = ({}, {})
+    fake_self._build_command.return_value = ["robocopy", "C:/source", "D:/dest"]
+
+    # Step 2 – mock validate_command to return a clean result (no filesystem hit).
+    ok_result = DryRunResult(ok=True)
+
+    # Step 3 – mock threading.Thread to capture what would have been launched.
+    with patch("rbcopy.gui.main_window.validate_command", return_value=ok_result):
+        with patch("rbcopy.gui.main_window._confirm_destructive_operation", return_value=True):
+            with patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls:
+                mock_thread = MagicMock()
+                mock_thread_cls.return_value = mock_thread
+
+                # Step 4 – invoke _run() exactly as the button command would.
+                RobocopyGUI._run(fake_self)
+
+    # Step 5 – assert the thread was started with the expected command.
+    mock_thread_cls.assert_called_once_with(
+        target=fake_self._execute,
+        args=(["robocopy", "C:/source", "D:/dest"],),
+        daemon=True,
+    )
+    mock_thread.start.assert_called_once()
+
+
+def test_run_button_click_with_invalid_source() -> None:
+    """Simulates a click after the user left Source blank.
+
+    The Click:
+        Source is "" (empty), Destination is "D:/dest".
+        validate_command returns ok=False because the source is missing.
+
+    Expected outcome:
+        • A warning dialog appears; no background thread is launched.
+    """
+    from rbcopy.builder import DryRunResult
+
+    fake_self = _make_fake_self()
+    fake_self.src_var.get.return_value = ""
+    fake_self.dst_var.get.return_value = "D:/dest"
+    fake_self._get_selections.return_value = ({}, {})
+
+    # Simulate the validation step returning a path error.
+    failed_result = DryRunResult(ok=False, errors=["Source path is required."])
+
+    with patch("rbcopy.gui.main_window.validate_command", return_value=failed_result):
+        with patch("rbcopy.gui.main_window.messagebox.showwarning") as mock_warn:
+            with patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls:
+                RobocopyGUI._run(fake_self)
+
+    # A warning must have been shown to the user.
+    mock_warn.assert_called_once()
+    # No subprocess should have been started.
+    mock_thread_cls.assert_not_called()
+
+
+def test_run_button_click_blocked_when_job_already_running() -> None:
+    """Simulates a second click while a robocopy job is still in progress.
+
+    The Click:
+        User clicks Run while self._current_proc is not None
+        (i.e. a previous job is still executing).
+
+    Expected outcome:
+        • _job_already_running() returns True.
+        • _run() returns immediately; no new thread is created.
+    """
+    fake_self = _make_fake_self()
+    # Simulate an already-running process.
+    fake_self._job_already_running.return_value = True
+
+    with patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls:
+        RobocopyGUI._run(fake_self)
+
+    mock_thread_cls.assert_not_called()
+
+
+def test_run_button_click_with_redundant_flags_proceeds_with_warning() -> None:
+    """Simulates clicking Run when /MIR and /E are both checked (redundant combination).
+
+    The Click:
+        User ticked both /MIR and /E, then clicked Run.
+
+    Expected outcome:
+        • validate_command emits a warning about /E being redundant.
+        • _run() writes the warning to the output panel.
+        • The job still launches because warnings are non-fatal (ok=True).
+    """
+    from rbcopy.builder import DryRunResult
+
+    fake_self = _make_fake_self()
+    fake_self.src_var.get.return_value = "C:/source"
+    fake_self.dst_var.get.return_value = "D:/dest"
+    fake_self._get_selections.return_value = ({"/MIR": True, "/E": True}, {})
+    fake_self._build_command.return_value = ["robocopy", "C:/source", "D:/dest", "/MIR", "/E"]
+
+    warn_result = DryRunResult(ok=True, warnings=["/MIR is selected; /E is redundant"])
+
+    with patch("rbcopy.gui.main_window.validate_command", return_value=warn_result):
+        with patch("rbcopy.gui.main_window._confirm_destructive_operation", return_value=True):
+            with patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls:
+                mock_thread_cls.return_value = MagicMock()
+                RobocopyGUI._run(fake_self)
+
+    # The thread must have been created (job proceeds despite warning).
+    mock_thread_cls.assert_called_once()
+    # The warning must have been surfaced in the output panel.
+    all_output = " ".join(call.args[0] for call in fake_self._append_output.call_args_list)
+    assert "/MIR is selected" in all_output
+
+
+# ---------------------------------------------------------------------------
 # RobocopyGUI._dry_run tests
 # ---------------------------------------------------------------------------
 
