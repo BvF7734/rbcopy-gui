@@ -42,6 +42,8 @@ class PathHistoryStore:
         self._path: Path = path if path is not None else _DEFAULT_HISTORY_PATH
         self._source: List[str] = []
         self._destination: List[str] = []
+        # True whenever in-memory lists differ from what is on disk.
+        self._dirty: bool = False
         self._load()
 
     # ------------------------------------------------------------------
@@ -66,7 +68,7 @@ class PathHistoryStore:
         # treated as the same entry regardless of how the caller formatted them.
         normalized: str = Path(path).as_posix()
         self._source = _deduplicate_prepend(self._source, normalized)
-        self._persist()
+        self._dirty = True
 
     def add_destination(self, path: str) -> None:
         """Prepend *path* to the destination history, deduplicating and trimming.
@@ -86,7 +88,7 @@ class PathHistoryStore:
         # treated as the same entry regardless of how the caller formatted them.
         normalized: str = Path(path).as_posix()
         self._destination = _deduplicate_prepend(self._destination, normalized)
-        self._persist()
+        self._dirty = True
 
     def get_source_paths(self) -> List[str]:
         """Return a snapshot of the current source path history (most-recent first)."""
@@ -96,10 +98,23 @@ class PathHistoryStore:
         """Return a snapshot of the current destination path history (most-recent first)."""
         return list(self._destination)
 
+    def flush(self) -> None:
+        """Write pending changes to disk if the in-memory state has changed.
+
+        Call this when the application is about to close (or at any other
+        safe checkpoint) to guarantee that paths added via :meth:`add_source`
+        and :meth:`add_destination` are durable.  No-op when the store is
+        already in sync with disk.
+        """
+        if self._dirty:
+            self._persist()
+            self._dirty = False
+
     def clear(self) -> None:
         """Erase all source and destination history entries and persist the change."""
         self._source = []
         self._destination = []
+        self._dirty = False
         self._persist()
 
     # ------------------------------------------------------------------

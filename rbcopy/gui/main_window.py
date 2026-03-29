@@ -1557,6 +1557,7 @@ class RobocopyGUI(tk.Tk):
                         proc.kill()
                     except OSError:
                         logger.debug("kill() failed (process may have already exited)")
+        self._path_history.flush()
         self._save_geometry()
         self.destroy()
 

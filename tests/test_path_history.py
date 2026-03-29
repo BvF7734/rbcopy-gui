@@ -172,30 +172,35 @@ def test_source_and_destination_are_independent(tmp_path: Path) -> None:
 
 
 def test_add_source_persists_to_disk(tmp_path: Path) -> None:
-    """add_source writes the updated list to the JSON file immediately."""
+    """add_source does not write to disk until flush() is called."""
     history_path = tmp_path / "history.json"
     store = PathHistoryStore(path=history_path)
     store.add_source("/persisted/src")
+    assert not history_path.exists()
+    store.flush()
     assert history_path.exists()
     data = json.loads(history_path.read_text(encoding="utf-8"))
     assert "/persisted/src" in data["source"]
 
 
 def test_add_destination_persists_to_disk(tmp_path: Path) -> None:
-    """add_destination writes the updated list to the JSON file immediately."""
+    """add_destination does not write to disk until flush() is called."""
     history_path = tmp_path / "history.json"
     store = PathHistoryStore(path=history_path)
     store.add_destination("/persisted/dst")
+    assert not history_path.exists()
+    store.flush()
     data = json.loads(history_path.read_text(encoding="utf-8"))
     assert "/persisted/dst" in data["destination"]
 
 
 def test_paths_survive_reload(tmp_path: Path) -> None:
-    """Paths recorded in one store instance are visible in a freshly loaded store."""
+    """Paths recorded in one store instance are visible in a freshly loaded store after flush."""
     history_path = tmp_path / "history.json"
     store1 = PathHistoryStore(path=history_path)
     store1.add_source("/src/first")
     store1.add_destination("/dst/first")
+    store1.flush()
 
     store2 = PathHistoryStore(path=history_path)
     assert store2.get_source_paths() == ["/src/first"]
@@ -203,23 +208,74 @@ def test_paths_survive_reload(tmp_path: Path) -> None:
 
 
 def test_ordering_preserved_after_reload(tmp_path: Path) -> None:
-    """MRU ordering is preserved across a reload."""
+    """MRU ordering is preserved across flush and reload."""
     history_path = tmp_path / "history.json"
     store1 = PathHistoryStore(path=history_path)
     store1.add_source("/a")
     store1.add_source("/b")
     store1.add_source("/c")
+    store1.flush()
 
     store2 = PathHistoryStore(path=history_path)
     assert store2.get_source_paths() == ["/c", "/b", "/a"]
 
 
 def test_persist_creates_parent_directory(tmp_path: Path) -> None:
-    """The parent directory is created automatically if it does not exist."""
+    """The parent directory is created automatically when flush() triggers the write."""
     history_path = tmp_path / "new_subdir" / "history.json"
     store = PathHistoryStore(path=history_path)
     store.add_source("/any/path")
+    store.flush()
     assert history_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# PathHistoryStore – flush
+# ---------------------------------------------------------------------------
+
+
+def test_flush_writes_dirty_state_to_disk(tmp_path: Path) -> None:
+    """flush() writes in-memory changes to disk when the store is dirty."""
+    history_path = tmp_path / "history.json"
+    store = PathHistoryStore(path=history_path)
+    store.add_source("/a")
+    store.add_destination("/b")
+    assert not history_path.exists()
+    store.flush()
+    data = json.loads(history_path.read_text(encoding="utf-8"))
+    assert data["source"] == ["/a"]
+    assert data["destination"] == ["/b"]
+
+
+def test_flush_is_noop_when_not_dirty(tmp_path: Path) -> None:
+    """flush() does not touch the disk when no changes have been made."""
+    history_path = tmp_path / "history.json"
+    store = PathHistoryStore(path=history_path)
+    store.flush()
+    assert not history_path.exists()
+
+
+def test_flush_is_idempotent(tmp_path: Path) -> None:
+    """Calling flush() twice only writes once; the second call is a no-op."""
+    history_path = tmp_path / "history.json"
+    store = PathHistoryStore(path=history_path)
+    store.add_source("/x")
+    store.flush()
+    mtime_after_first = history_path.stat().st_mtime_ns
+    store.flush()
+    assert history_path.stat().st_mtime_ns == mtime_after_first
+
+
+def test_add_after_flush_marks_dirty_again(tmp_path: Path) -> None:
+    """A new add_source after flush() re-marks the store dirty for the next flush."""
+    history_path = tmp_path / "history.json"
+    store = PathHistoryStore(path=history_path)
+    store.add_source("/first")
+    store.flush()
+    store.add_source("/second")
+    store.flush()
+    data = json.loads(history_path.read_text(encoding="utf-8"))
+    assert data["source"] == ["/second", "/first"]
 
 
 # ---------------------------------------------------------------------------
