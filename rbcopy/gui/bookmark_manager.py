@@ -269,10 +269,6 @@ class _BookmarkManagerWindow(tk.Toplevel):
         if bookmark is None:
             return
 
-        # Check for the placeholder row that appears when the store is empty.
-        if bookmark.name == "(no bookmarks)":
-            return
-
         original_name = bookmark.name
         dlg = _EditBookmarkDialog(self, initial_name=bookmark.name, initial_path=bookmark.path)
         if dlg.name is None:
@@ -311,8 +307,6 @@ class _BookmarkManagerWindow(tk.Toplevel):
         """Delete the currently selected bookmark after confirmation."""
         bookmark = self._selected_bookmark()
         if bookmark is None:
-            return
-        if bookmark.name == "(no bookmarks)":
             return
 
         confirmed = messagebox.askyesno(
@@ -379,7 +373,7 @@ class _BookmarkManagerWindow(tk.Toplevel):
     def _set_as_source(self) -> None:
         """Apply the selected bookmark's path to the source field."""
         bookmark = self._selected_bookmark()
-        if bookmark is None or bookmark.name == "(no bookmarks)":
+        if bookmark is None:
             return
         if self._on_apply is not None:
             self._on_apply("source", bookmark.path)
@@ -387,7 +381,7 @@ class _BookmarkManagerWindow(tk.Toplevel):
     def _set_as_destination(self) -> None:
         """Apply the selected bookmark's path to the destination field."""
         bookmark = self._selected_bookmark()
-        if bookmark is None or bookmark.name == "(no bookmarks)":
+        if bookmark is None:
             return
         if self._on_apply is not None:
             self._on_apply("destination", bookmark.path)

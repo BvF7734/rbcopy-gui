@@ -511,7 +511,7 @@ class RobocopyGUI(tk.Tk):
         # Keep a reference so _init_dnd can register the source entry as a drop target.
         # ttk.Combobox inherits from ttk.Entry so DnD registration is unchanged.
         self._src_entry = ttk.Combobox(path_frame, textvariable=self.src_var, values=[])
-        self._src_entry["postcommand"] = self._refresh_src_dropdown
+        self._src_entry["postcommand"] = self._refresh_path_dropdowns
         self._src_entry.grid(row=0, column=1, sticky="ew", padx=4)
         ttk.Button(path_frame, text="Browse…", command=self._browse_src).grid(row=0, column=2)
         _src_bm_btn = ttk.Button(
@@ -525,7 +525,7 @@ class RobocopyGUI(tk.Tk):
 
         ttk.Label(path_frame, text="Destination:").grid(row=1, column=0, sticky="w", pady=2)
         self._dst_entry = ttk.Combobox(path_frame, textvariable=self.dst_var, values=[])
-        self._dst_entry["postcommand"] = self._refresh_dst_dropdown
+        self._dst_entry["postcommand"] = self._refresh_path_dropdowns
         self._dst_entry.grid(row=1, column=1, sticky="ew", padx=4)
         self._dst_browse_btn = ttk.Button(path_frame, text="Browse…", command=self._browse_dst)
         self._dst_browse_btn.grid(row=1, column=2)
@@ -1033,14 +1033,6 @@ class RobocopyGUI(tk.Tk):
         path = filedialog.askdirectory(title="Select Destination Directory")
         if path:
             self.dst_var.set(path)
-
-    def _refresh_src_dropdown(self) -> None:
-        """Populate the source Combobox values from path history (postcommand callback)."""
-        self._refresh_path_dropdowns()
-
-    def _refresh_dst_dropdown(self) -> None:
-        """Populate the destination Combobox values from path history (postcommand callback)."""
-        self._refresh_path_dropdowns()
 
     def _refresh_path_dropdowns(self) -> None:
         """Sync both path Combobox value lists from the path history store."""
