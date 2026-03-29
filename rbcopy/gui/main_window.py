@@ -430,12 +430,14 @@ class RobocopyGUI(tk.Tk):
         self._src_entry["postcommand"] = self._refresh_src_dropdown
         self._src_entry.grid(row=0, column=1, sticky="ew", padx=4)
         ttk.Button(path_frame, text="Browse…", command=self._browse_src).grid(row=0, column=2)
-        ttk.Button(
+        _src_bm_btn = ttk.Button(
             path_frame,
             text="★",
             width=2,
             command=lambda: self._bookmark_field("source"),
-        ).grid(row=0, column=3, padx=(2, 0))
+        )
+        _src_bm_btn.grid(row=0, column=3, padx=(2, 0))
+        _ToolTip(_src_bm_btn, "Bookmark this source path.\nSaved bookmarks appear in the Bookmarks menu.")
 
         ttk.Label(path_frame, text="Destination:").grid(row=1, column=0, sticky="w", pady=2)
         self.dst_var = tk.StringVar()
@@ -444,12 +446,14 @@ class RobocopyGUI(tk.Tk):
         self._dst_entry.grid(row=1, column=1, sticky="ew", padx=4)
         self._dst_browse_btn = ttk.Button(path_frame, text="Browse…", command=self._browse_dst)
         self._dst_browse_btn.grid(row=1, column=2)
-        ttk.Button(
+        _dst_bm_btn = ttk.Button(
             path_frame,
             text="★",
             width=2,
             command=lambda: self._bookmark_field("destination"),
-        ).grid(row=1, column=3, padx=(2, 0))
+        )
+        _dst_bm_btn.grid(row=1, column=3, padx=(2, 0))
+        _ToolTip(_dst_bm_btn, "Bookmark this destination path.\nSaved bookmarks appear in the Bookmarks menu.")
 
         # ── File Filter ───────────────────────────────────────────────
         self._file_filter_cb = ttk.Checkbutton(
