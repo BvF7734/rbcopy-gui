@@ -1618,4 +1618,17 @@ class RobocopyGUI(tk.Tk):
             parent=self,
             store=self._prefs_store,
             on_saved=self._apply_preferences,
+            on_clear_history=self._clear_path_history,
+            on_clear_bookmarks=self._clear_bookmarks,
         )
+
+    def _clear_path_history(self) -> None:
+        """Erase all path history and refresh the Combobox dropdowns."""
+        self._path_history.clear()
+        self._src_entry["values"] = []
+        self._dst_entry["values"] = []
+
+    def _clear_bookmarks(self) -> None:
+        """Erase all bookmarks and rebuild the Bookmarks menu."""
+        self._bookmarks_store.clear()
+        self._rebuild_bookmarks_menu()

@@ -277,3 +277,36 @@ def test_store_creates_parent_directory_on_persist(tmp_path: Path) -> None:
 
     assert result is True
     assert nested_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# BookmarksStore – clear
+# ---------------------------------------------------------------------------
+
+
+def test_clear_removes_all_bookmarks(tmp_path: Path) -> None:
+    """clear() leaves the in-memory list empty."""
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("A", r"C:\a")
+    store.add_bookmark("B", r"C:\b")
+    store.clear()
+
+    assert store.get_bookmarks() == []
+
+
+def test_clear_persists_to_disk(tmp_path: Path) -> None:
+    """After clear(), a fresh store load sees no bookmarks."""
+    bm_path = tmp_path / "bookmarks.json"
+    store = BookmarksStore(path=bm_path)
+    store.add_bookmark("X", r"C:\x")
+    store.clear()
+
+    store2 = BookmarksStore(path=bm_path)
+    assert store2.get_bookmarks() == []
+
+
+def test_clear_on_empty_store_is_noop(tmp_path: Path) -> None:
+    """clear() on an already-empty store does not raise."""
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.clear()  # must not raise
+    assert store.get_bookmarks() == []

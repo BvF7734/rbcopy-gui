@@ -82,6 +82,12 @@ class PathHistoryStore:
         """Return a snapshot of the current destination path history (most-recent first)."""
         return list(self._destination)
 
+    def clear(self) -> None:
+        """Erase all source and destination history entries and persist the change."""
+        self._source = []
+        self._destination = []
+        self._persist()
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -98,8 +104,8 @@ class PathHistoryStore:
         try:
             raw = self._path.read_text(encoding="utf-8")
             data = json.loads(raw)
-            self._source = [str(p) for p in data.get(_KEY_SOURCE, [])]
-            self._destination = [str(p) for p in data.get(_KEY_DESTINATION, [])]
+            self._source = [str(p) for p in data.get(_KEY_SOURCE, [])][:MAX_PATHS]
+            self._destination = [str(p) for p in data.get(_KEY_DESTINATION, [])][:MAX_PATHS]
         except (json.JSONDecodeError, ValueError, OSError, TypeError):
             logger.debug(
                 "Failed to load path history from %s; initialising empty lists",

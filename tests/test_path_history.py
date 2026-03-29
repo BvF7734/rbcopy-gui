@@ -279,3 +279,71 @@ def test_get_destination_paths_returns_snapshot(tmp_path: Path) -> None:
     snapshot = store.get_destination_paths()
     snapshot.clear()
     assert store.get_destination_paths() == ["/x"]
+
+
+# ---------------------------------------------------------------------------
+# PathHistoryStore – clear
+# ---------------------------------------------------------------------------
+
+
+def test_clear_removes_all_paths(tmp_path: Path) -> None:
+    """clear() leaves both source and destination histories empty."""
+    store = PathHistoryStore(path=tmp_path / "history.json")
+    store.add_source("/src/a")
+    store.add_destination("/dst/a")
+    store.clear()
+
+    assert store.get_source_paths() == []
+    assert store.get_destination_paths() == []
+
+
+def test_clear_persists_to_disk(tmp_path: Path) -> None:
+    """After clear(), a fresh store load sees no paths."""
+    history_path = tmp_path / "history.json"
+    store = PathHistoryStore(path=history_path)
+    store.add_source("/src/a")
+    store.add_destination("/dst/a")
+    store.clear()
+
+    store2 = PathHistoryStore(path=history_path)
+    assert store2.get_source_paths() == []
+    assert store2.get_destination_paths() == []
+
+
+def test_clear_on_empty_store_is_noop(tmp_path: Path) -> None:
+    """clear() on an already-empty store does not raise."""
+    store = PathHistoryStore(path=tmp_path / "history.json")
+    store.clear()  # must not raise
+    assert store.get_source_paths() == []
+    assert store.get_destination_paths() == []
+
+
+# ---------------------------------------------------------------------------
+# PathHistoryStore – MAX_PATHS cap enforced on load
+# ---------------------------------------------------------------------------
+
+
+def test_load_caps_source_to_max_paths(tmp_path: Path) -> None:
+    """Entries beyond MAX_PATHS written directly to the JSON file are silently dropped on load."""
+    history_path = tmp_path / "history.json"
+    oversized_source = [f"/src/{i}" for i in range(MAX_PATHS + 10)]
+    history_path.write_text(
+        __import__("json").dumps({"source": oversized_source, "destination": []}),
+        encoding="utf-8",
+    )
+
+    store = PathHistoryStore(path=history_path)
+    assert len(store.get_source_paths()) == MAX_PATHS
+
+
+def test_load_caps_destination_to_max_paths(tmp_path: Path) -> None:
+    """Destination entries beyond MAX_PATHS are silently dropped on load."""
+    history_path = tmp_path / "history.json"
+    oversized_dst = [f"/dst/{i}" for i in range(MAX_PATHS + 5)]
+    history_path.write_text(
+        __import__("json").dumps({"source": [], "destination": oversized_dst}),
+        encoding="utf-8",
+    )
+
+    store = PathHistoryStore(path=history_path)
+    assert len(store.get_destination_paths()) == MAX_PATHS

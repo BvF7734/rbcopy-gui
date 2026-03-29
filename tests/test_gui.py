@@ -3823,4 +3823,6 @@ def test_open_preferences_opens_dialog() -> None:
         parent=fake_self,
         store=fake_self._prefs_store,
         on_saved=fake_self._apply_preferences,
+        on_clear_history=fake_self._clear_path_history,
+        on_clear_bookmarks=fake_self._clear_bookmarks,
     )

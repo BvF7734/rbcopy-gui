@@ -131,6 +131,11 @@ class BookmarksStore:
         self._bookmarks = [b for b in self._bookmarks if b.name != name]
         self._persist()
 
+    def clear(self) -> None:
+        """Erase all bookmarks and persist the change."""
+        self._bookmarks = []
+        self._persist()
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
