@@ -136,6 +136,26 @@ class BookmarksStore:
         self._bookmarks = []
         self._persist()
 
+    def replace_all(self, bookmarks: List[Bookmark]) -> bool:
+        """Replace the entire bookmarks list with *bookmarks* and persist.
+
+        Validates each entry via Pydantic before mutating the in-memory list.
+        If the disk write fails the previous list is restored so the store
+        remains consistent with what is on disk.
+
+        Args:
+            bookmarks: New ordered list of :class:`Bookmark` objects.
+
+        Returns:
+            ``True`` if the new list was persisted successfully, ``False`` otherwise.
+        """
+        previous = list(self._bookmarks)
+        self._bookmarks = list(bookmarks)
+        if not self._persist():
+            self._bookmarks = previous
+            return False
+        return True
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

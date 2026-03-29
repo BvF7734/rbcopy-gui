@@ -35,6 +35,7 @@ from rbcopy.bookmarks import BookmarksStore
 from rbcopy.path_history import PathHistoryStore
 from rbcopy.presets import CustomPreset, CustomPresetsStore
 
+from rbcopy.gui.bookmark_manager import _BookmarkManagerWindow
 from rbcopy.gui.job_history import _JobHistoryWindow
 from rbcopy.gui.preferences_dialog import _PreferencesDialog
 from rbcopy.gui.script_builder import _PackPadding, _ScriptExportDialog
@@ -1232,7 +1233,8 @@ class RobocopyGUI(tk.Tk):
         The menu always starts with two quick-bookmark commands, followed by a
         separator, then the stored bookmarks (each with a submenu offering
         "Set as source" / "Set as destination").  A disabled placeholder is
-        shown when no bookmarks exist yet.
+        shown when no bookmarks exist yet.  The menu is always closed by a
+        separator and a "Manage Bookmarks\u2026" command.
         """
         self._bookmarks_menu.delete(0, "end")
         self._bookmarks_menu.add_command(
@@ -1247,18 +1249,39 @@ class RobocopyGUI(tk.Tk):
         bookmarks = self._bookmarks_store.get_bookmarks()
         if not bookmarks:
             self._bookmarks_menu.add_command(label="(no bookmarks)", state="disabled")
-            return
-        for bookmark in bookmarks:
-            sub = tk.Menu(self._bookmarks_menu, tearoff=0)
-            self._bookmarks_menu.add_cascade(label=bookmark.name, menu=sub)
-            sub.add_command(
-                label="Set as source",
-                command=partial(self.src_var.set, bookmark.path),
-            )
-            sub.add_command(
-                label="Set as destination",
-                command=partial(self.dst_var.set, bookmark.path),
-            )
+        else:
+            for bookmark in bookmarks:
+                sub = tk.Menu(self._bookmarks_menu, tearoff=0)
+                self._bookmarks_menu.add_cascade(label=bookmark.name, menu=sub)
+                sub.add_command(
+                    label="Set as source",
+                    command=partial(self.src_var.set, bookmark.path),
+                )
+                sub.add_command(
+                    label="Set as destination",
+                    command=partial(self.dst_var.set, bookmark.path),
+                )
+        self._bookmarks_menu.add_separator()
+        self._bookmarks_menu.add_command(
+            label="Manage Bookmarks\u2026",
+            command=self._open_bookmark_manager,
+        )
+
+    def _open_bookmark_manager(self) -> None:
+        """Open the Bookmark Manager window (Bookmarks → Manage Bookmarks…)."""
+
+        def _on_apply(field: str, path: str) -> None:
+            if field == "source":
+                self.src_var.set(path)
+            else:
+                self.dst_var.set(path)
+
+        _BookmarkManagerWindow(
+            self,
+            store=self._bookmarks_store,
+            on_change=self._rebuild_bookmarks_menu,
+            on_apply=_on_apply,
+        )
 
     def _get_selections(self) -> tuple[dict[str, bool], dict[str, tuple[bool, str]]]:
         """Return the current flag and param selections from the UI widgets."""

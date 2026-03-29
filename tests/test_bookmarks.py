@@ -294,6 +294,93 @@ def test_clear_removes_all_bookmarks(tmp_path: Path) -> None:
     assert store.get_bookmarks() == []
 
 
+# ---------------------------------------------------------------------------
+# BookmarksStore – replace_all
+# ---------------------------------------------------------------------------
+
+
+def test_replace_all_replaces_the_entire_list(tmp_path: Path) -> None:
+    """replace_all replaces all bookmarks with the given list."""
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("A", r"C:\a")
+    store.add_bookmark("B", r"C:\b")
+
+    new_bookmarks = [Bookmark(name="X", path=r"C:\x"), Bookmark(name="Y", path=r"C:\y")]
+    result = store.replace_all(new_bookmarks)
+
+    assert result is True
+    names = [b.name for b in store.get_bookmarks()]
+    assert names == ["X", "Y"]
+
+
+def test_replace_all_preserves_order(tmp_path: Path) -> None:
+    """replace_all persists bookmarks in exactly the supplied order."""
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("A", r"C:\a")
+    store.add_bookmark("B", r"C:\b")
+    store.add_bookmark("C", r"C:\c")
+
+    reordered = [
+        Bookmark(name="C", path=r"C:\c"),
+        Bookmark(name="A", path=r"C:\a"),
+        Bookmark(name="B", path=r"C:\b"),
+    ]
+    store.replace_all(reordered)
+
+    names = [b.name for b in store.get_bookmarks()]
+    assert names == ["C", "A", "B"]
+
+
+def test_replace_all_persists_to_disk(tmp_path: Path) -> None:
+    """replace_all writes the new list so a fresh store sees the same order."""
+    bookmarks_path = tmp_path / "bookmarks.json"
+    store1 = BookmarksStore(path=bookmarks_path)
+    store1.add_bookmark("A", r"C:\a")
+    store1.add_bookmark("B", r"C:\b")
+
+    reordered = [
+        Bookmark(name="B", path=r"C:\b"),
+        Bookmark(name="A", path=r"C:\a"),
+    ]
+    store1.replace_all(reordered)
+
+    store2 = BookmarksStore(path=bookmarks_path)
+    names = [b.name for b in store2.get_bookmarks()]
+    assert names == ["B", "A"]
+
+
+def test_replace_all_with_empty_list_clears_store(tmp_path: Path) -> None:
+    """replace_all with an empty list removes all bookmarks."""
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("A", r"C:\a")
+
+    store.replace_all([])
+
+    assert store.get_bookmarks() == []
+
+
+def test_replace_all_rolls_back_on_write_failure(tmp_path: Path) -> None:
+    """replace_all leaves the in-memory list unchanged when the disk write fails."""
+    bookmarks_path = tmp_path / "bookmarks.json"
+    store = BookmarksStore(path=bookmarks_path)
+    store.add_bookmark("A", r"C:\a")
+
+    original = store.get_bookmarks()
+
+    with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+        result = store.replace_all([Bookmark(name="X", path=r"C:\x")])
+
+    assert result is False
+    assert store.get_bookmarks() == original
+
+
+def test_replace_all_returns_true_on_success(tmp_path: Path) -> None:
+    """replace_all returns True after a successful write."""
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    result = store.replace_all([Bookmark(name="N", path=r"C:\n")])
+    assert result is True
+
+
 def test_clear_persists_to_disk(tmp_path: Path) -> None:
     """After clear(), a fresh store load sees no bookmarks."""
     bm_path = tmp_path / "bookmarks.json"
