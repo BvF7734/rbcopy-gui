@@ -449,6 +449,11 @@ class RobocopyGUI(tk.Tk):
         self._preset_combo: ttk.Combobox | None = None
         self._advanced_visible: bool = False
 
+        # Path vars must be initialised before _build_ui so that _rebuild_bookmarks_menu
+        # (called from _build_menu, which runs first) can reference them safely.
+        self.src_var: tk.StringVar = tk.StringVar()
+        self.dst_var: tk.StringVar = tk.StringVar()
+
         self._build_ui()
         self._apply_preferences()
 
@@ -502,7 +507,6 @@ class RobocopyGUI(tk.Tk):
         path_frame.columnconfigure(1, weight=1)
 
         ttk.Label(path_frame, text="Source:").grid(row=0, column=0, sticky="w", pady=2)
-        self.src_var = tk.StringVar()
         # Keep a reference so _init_dnd can register the source entry as a drop target.
         # ttk.Combobox inherits from ttk.Entry so DnD registration is unchanged.
         self._src_entry = ttk.Combobox(path_frame, textvariable=self.src_var, values=[])
@@ -519,7 +523,6 @@ class RobocopyGUI(tk.Tk):
         _ToolTip(_src_bm_btn, "Bookmark this source path.\nSaved bookmarks appear in the Bookmarks menu.")
 
         ttk.Label(path_frame, text="Destination:").grid(row=1, column=0, sticky="w", pady=2)
-        self.dst_var = tk.StringVar()
         self._dst_entry = ttk.Combobox(path_frame, textvariable=self.dst_var, values=[])
         self._dst_entry["postcommand"] = self._refresh_dst_dropdown
         self._dst_entry.grid(row=1, column=1, sticky="ew", padx=4)
