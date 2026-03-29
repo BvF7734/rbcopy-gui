@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+
+import pytest
 
 from rbcopy.path_history import MAX_PATHS, PathHistoryStore, _deduplicate_prepend
 
@@ -316,6 +319,31 @@ def test_clear_on_empty_store_is_noop(tmp_path: Path) -> None:
     store.clear()  # must not raise
     assert store.get_source_paths() == []
     assert store.get_destination_paths() == []
+
+
+# ---------------------------------------------------------------------------
+# PathHistoryStore – path normalization
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only path separator normalization")
+def test_add_source_treats_slash_variants_as_same_entry(tmp_path: Path) -> None:
+    """'C:/test' and 'C:\\test' are deduplicated to a single source history entry."""
+    store = PathHistoryStore(path=tmp_path / "history.json")
+    store.add_source("C:/test")
+    store.add_source("C:\\test")
+    paths = store.get_source_paths()
+    assert len(paths) == 1
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only path separator normalization")
+def test_add_destination_treats_slash_variants_as_same_entry(tmp_path: Path) -> None:
+    """'C:/test' and 'C:\\test' are deduplicated to a single destination history entry."""
+    store = PathHistoryStore(path=tmp_path / "history.json")
+    store.add_destination("C:/test")
+    store.add_destination("C:\\test")
+    paths = store.get_destination_paths()
+    assert len(paths) == 1
 
 
 # ---------------------------------------------------------------------------

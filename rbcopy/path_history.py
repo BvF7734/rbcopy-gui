@@ -55,10 +55,17 @@ class PathHistoryStore:
         prepended so it appears at index 0 (the top of the dropdown).  The list
         is then trimmed to at most :data:`MAX_PATHS` entries.
 
+        The path is normalised via :class:`pathlib.Path` before storage so that
+        equivalent paths using different separators (e.g. ``C:/test`` and
+        ``C:\\test`` on Windows) are treated as a single entry.
+
         Args:
             path: The source path string to record.
         """
-        self._source = _deduplicate_prepend(self._source, path)
+        # Normalise to POSIX separators so that C:\test and C:/test are
+        # treated as the same entry regardless of how the caller formatted them.
+        normalized: str = Path(path).as_posix()
+        self._source = _deduplicate_prepend(self._source, normalized)
         self._persist()
 
     def add_destination(self, path: str) -> None:
@@ -68,10 +75,17 @@ class PathHistoryStore:
         prepended so it appears at index 0 (the top of the dropdown).  The list
         is then trimmed to at most :data:`MAX_PATHS` entries.
 
+        The path is normalised via :class:`pathlib.Path` before storage so that
+        equivalent paths using different separators (e.g. ``C:/test`` and
+        ``C:\\test`` on Windows) are treated as a single entry.
+
         Args:
             path: The destination path string to record.
         """
-        self._destination = _deduplicate_prepend(self._destination, path)
+        # Normalise to POSIX separators so that C:\test and C:/test are
+        # treated as the same entry regardless of how the caller formatted them.
+        normalized: str = Path(path).as_posix()
+        self._destination = _deduplicate_prepend(self._destination, normalized)
         self._persist()
 
     def get_source_paths(self) -> List[str]:
