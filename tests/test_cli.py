@@ -67,7 +67,8 @@ def test_dry_run_short_flags():
 
 def test_dry_run_includes_src_and_dst():
     with _PATCH_LOGGING, _PATCH_PREFLIGHT, _PATCH_NOTIFY:
-        result = runner.invoke(app, ["sync", "--source", "C:/source", "--dest", "C:/destination", "--dry-run"])
+        with patch("rbcopy.builder.sys.platform", "linux"):
+            result = runner.invoke(app, ["sync", "--source", "C:/source", "--dest", "C:/destination", "--dry-run"])
     assert "C:/source" in result.output
     assert "C:/destination" in result.output
 
@@ -81,8 +82,11 @@ def test_sync_runs_subprocess():
     """When --source and --dest are supplied, asyncio.create_subprocess_exec is called."""
     mock_proc = make_mock_async_proc(returncode=0)
     with _PATCH_LOGGING, _PATCH_PREFLIGHT, _PATCH_NOTIFY:
-        with patch("rbcopy.cli.asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)) as mock_create:
-            result = runner.invoke(app, ["sync", "--source", "C:/src", "--dest", "C:/dst"])
+        with patch("rbcopy.builder.sys.platform", "linux"):
+            with patch(
+                "rbcopy.cli.asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)
+            ) as mock_create:
+                result = runner.invoke(app, ["sync", "--source", "C:/src", "--dest", "C:/dst"])
     assert result.exit_code == 0
     mock_create.assert_called_once()
     call_args = mock_create.call_args[0]

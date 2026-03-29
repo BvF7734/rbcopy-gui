@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -17,6 +18,7 @@ from rbcopy.builder import (
     SUPERSEDES,
     _DEFAULT_FLAGS,
     _DEFAULT_PARAMS,
+    _apply_extended_path_prefix,
     _powershell_quote,
     build_batch_script,
     build_command,
@@ -123,19 +125,22 @@ def test_build_command_requires_dst() -> None:
 
 def test_build_command_strips_whitespace() -> None:
     """Leading/trailing whitespace in paths is stripped before validation."""
-    cmd = build_command("  C:/source  ", "  C:/destination  ", {}, {})
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("  C:/source  ", "  C:/destination  ", {}, {})
     assert cmd[1] == "C:/source"
     assert cmd[2] == "C:/destination"
 
 
 def test_build_command_minimal() -> None:
-    cmd = build_command("C:/source", "C:/destination", {}, {})
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("C:/source", "C:/destination", {}, {})
     assert cmd == ["robocopy", "C:/source", "C:/destination"]
 
 
 def test_build_command_file_filter_single_pattern() -> None:
     """A single file-pattern token appears between dst and any flags."""
-    cmd = build_command("C:/src", "C:/dst", {}, {}, file_filter="*.img")
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("C:/src", "C:/dst", {}, {}, file_filter="*.img")
     assert cmd == ["robocopy", "C:/src", "C:/dst", "*.img"]
 
 
@@ -154,13 +159,15 @@ def test_build_command_file_filter_appears_before_flags() -> None:
 
 def test_build_command_file_filter_empty_adds_no_tokens() -> None:
     """An empty file_filter must not add any extra tokens to the command."""
-    cmd = build_command("C:/src", "C:/dst", {}, {}, file_filter="")
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("C:/src", "C:/dst", {}, {}, file_filter="")
     assert cmd == ["robocopy", "C:/src", "C:/dst"]
 
 
 def test_build_command_file_filter_whitespace_only_adds_no_tokens() -> None:
     """A whitespace-only file_filter string must not add any extra tokens."""
-    cmd = build_command("C:/src", "C:/dst", {}, {}, file_filter="   ")
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("C:/src", "C:/dst", {}, {}, file_filter="   ")
     assert cmd == ["robocopy", "C:/src", "C:/dst"]
 
 
@@ -303,7 +310,8 @@ def test_properties_only_params_contains_required() -> None:
 
 
 def test_build_robocopy_command_minimal() -> None:
-    cmd = build_robocopy_command("C:/source", "C:/dest", {})
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_robocopy_command("C:/source", "C:/dest", {})
     assert cmd == ["robocopy", "C:/source", "C:/dest"]
 
 
@@ -567,6 +575,63 @@ def test_validate_command_warns_for_redundant_flag_and_empty_param_simultaneousl
     assert any("/E" in w or "redundant" in w for w in result.warnings)
     assert any("/R" in w for w in result.warnings)
     assert len(result.warnings) >= 2
+
+
+# ---------------------------------------------------------------------------
+# _apply_extended_path_prefix – direct unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_apply_extended_path_prefix_noop_on_non_windows() -> None:
+    """The function must return the path unchanged on non-Windows platforms."""
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        assert _apply_extended_path_prefix("C:/source") == "C:/source"
+        assert _apply_extended_path_prefix("/home/user/data") == "/home/user/data"
+
+
+def test_apply_extended_path_prefix_drive_letter_path() -> None:
+    """An absolute drive-letter path gains the \\\\?\\ prefix on Windows."""
+    with patch("rbcopy.builder.sys.platform", "win32"):
+        result = _apply_extended_path_prefix("C:\\Users\\data")
+    assert result == "\\\\?\\C:\\Users\\data"
+
+
+def test_apply_extended_path_prefix_normalises_forward_slashes() -> None:
+    """Forward slashes in an otherwise absolute Windows path are converted to backslashes."""
+    with patch("rbcopy.builder.sys.platform", "win32"):
+        result = _apply_extended_path_prefix("C:/Users/data")
+    assert result == "\\\\?\\C:\\Users\\data"
+
+
+def test_apply_extended_path_prefix_unc_path() -> None:
+    """A UNC path gains the \\\\?\\UNC\\ prefix (not a plain \\\\?\\\\\\\\ prefix)."""
+    with patch("rbcopy.builder.sys.platform", "win32"):
+        result = _apply_extended_path_prefix("\\\\server\\share\\docs")
+    assert result == "\\\\?\\UNC\\server\\share\\docs"
+
+
+def test_apply_extended_path_prefix_already_prefixed_not_doubled() -> None:
+    """A path that already carries the prefix is returned unchanged."""
+    already_prefixed = "\\\\?\\C:\\long\\path"
+    with patch("rbcopy.builder.sys.platform", "win32"):
+        result = _apply_extended_path_prefix(already_prefixed)
+    assert result == already_prefixed
+
+
+def test_apply_extended_path_prefix_relative_path_unchanged() -> None:
+    """A relative path must not receive the prefix even on Windows."""
+    with patch("rbcopy.builder.sys.platform", "win32"):
+        result = _apply_extended_path_prefix("relative\\path\\file")
+    assert result == "relative\\path\\file"
+
+
+def test_apply_extended_path_prefix_applied_in_build_command() -> None:
+    """build_command applies the extended-length prefix to src and dst on Windows."""
+    with patch("rbcopy.builder.sys.platform", "win32"):
+        cmd = build_command("C:/source", "C:/destination", {}, {})
+    assert cmd[0] == "robocopy"
+    assert cmd[1] == "\\\\?\\C:\\source"
+    assert cmd[2] == "\\\\?\\C:\\destination"
 
 
 # ---------------------------------------------------------------------------
@@ -870,7 +935,8 @@ def test_exit_code_label_no_check_log_for_low_codes() -> None:
 
 def test_build_command_normal_source_and_destination() -> None:
     """build_command produces the expected three-token base command for valid paths."""
-    cmd = build_command("C:/Users/backup", "D:/Backups/users", {}, {})
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("C:/Users/backup", "D:/Backups/users", {}, {})
     assert cmd[0] == "robocopy"
     assert cmd[1] == "C:/Users/backup"
     assert cmd[2] == "D:/Backups/users"
@@ -893,7 +959,8 @@ def test_build_command_normal_with_common_flag_set() -> None:
 
 def test_build_command_normal_preserves_path_order() -> None:
     """Source always comes before destination in the built command."""
-    cmd = build_command("C:/source", "D:/destination", {}, {})
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("C:/source", "D:/destination", {}, {})
     assert cmd.index("C:/source") < cmd.index("D:/destination")
 
 

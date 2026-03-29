@@ -609,9 +609,11 @@ def test_store_recovers_from_schema_invalid_preset_file(tmp_path: Path) -> None:
     """A file with valid JSON but invalid schema is silently skipped; store starts empty."""
     presets_path = tmp_path / "presets.json"
     # Integer flag value is valid JSON but violates the strict bool constraint.
-    raw = json.dumps([
-        {"name": "bad", "source": "", "destination": "", "flags": {"/MIR": 1}, "params": {}},
-    ])
+    raw = json.dumps(
+        [
+            {"name": "bad", "source": "", "destination": "", "flags": {"/MIR": 1}, "params": {}},
+        ]
+    )
     presets_path.write_text(raw, encoding="utf-8")
 
     with patch("rbcopy.presets._load_bundled_presets", return_value=[]):
@@ -624,9 +626,11 @@ def test_store_recovers_from_bad_param_types_in_file(tmp_path: Path) -> None:
     """A file where params contain wrong types is handled gracefully."""
     presets_path = tmp_path / "presets.json"
     # First param element is a string instead of bool.
-    raw = json.dumps([
-        {"name": "bad", "source": "", "destination": "", "flags": {}, "params": {"/MT": ["yes", "8"]}},
-    ])
+    raw = json.dumps(
+        [
+            {"name": "bad", "source": "", "destination": "", "flags": {}, "params": {"/MT": ["yes", "8"]}},
+        ]
+    )
     presets_path.write_text(raw, encoding="utf-8")
 
     with patch("rbcopy.presets._load_bundled_presets", return_value=[]):
@@ -638,9 +642,11 @@ def test_store_recovers_from_bad_param_types_in_file(tmp_path: Path) -> None:
 def test_store_recovers_from_non_string_source_in_file(tmp_path: Path) -> None:
     """A file where source/destination are not strings is handled gracefully."""
     presets_path = tmp_path / "presets.json"
-    raw = json.dumps([
-        {"name": "bad", "source": 999, "destination": "", "flags": {}, "params": {}},
-    ])
+    raw = json.dumps(
+        [
+            {"name": "bad", "source": 999, "destination": "", "flags": {}, "params": {}},
+        ]
+    )
     presets_path.write_text(raw, encoding="utf-8")
 
     with patch("rbcopy.presets._load_bundled_presets", return_value=[]):

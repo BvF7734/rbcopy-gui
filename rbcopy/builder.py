@@ -7,6 +7,7 @@ function so they can be imported and tested independently of Tkinter.
 from __future__ import annotations
 
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path as _Path
 
@@ -261,6 +262,65 @@ def exit_code_label(code: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Extended-length path helper
+# ---------------------------------------------------------------------------
+
+
+def _apply_extended_path_prefix(path: str) -> str:
+    """Prepend the Windows extended-length path prefix (``\\\\?\\``) to absolute paths.
+
+    Windows historically limits paths to 260 characters (MAX_PATH).  The
+    ``\\\\?\\`` prefix instructs the Win32 API to bypass this limit, allowing
+    paths up to ~32,767 Unicode characters.  It is safe to apply to paths
+    shorter than 260 characters — robocopy and the Win32 API honour the prefix
+    for both short and long paths.
+
+    The prefix is only applied when all three conditions hold:
+
+    - The process is running on Windows (``sys.platform == "win32"``).
+    - The path is absolute: it begins with a drive letter (``C:\\``) or a
+      UNC share (``\\\\server\\share``).
+    - The prefix has not already been applied.
+
+    UNC paths (``\\\\server\\share\\…``) require the special
+    ``\\\\?\\UNC\\`` form per Microsoft's extended-length path rules, rather
+    than the plain ``\\\\?\\`` form used for drive-letter paths.
+
+    This function is a no-op on non-Windows platforms and on relative paths,
+    so it is always safe to call regardless of the input.
+    """
+    if sys.platform != "win32":
+        return path
+
+    # Normalise forward slashes to backslashes.  The Win32 extended-length
+    # prefix is only defined for backslash-separated paths.
+    normalised = path.replace("/", "\\")
+
+    # Avoid double-applying the prefix if it is already present.
+    if normalised.startswith("\\\\?\\"):
+        return path
+
+    # Identify Windows absolute paths without relying on pathlib.is_absolute(),
+    # which returns different results on Linux vs Windows for the same string.
+    # A drive-letter root looks like "C:\" and a UNC root starts with "\\".
+    is_drive_absolute = len(normalised) >= 3 and normalised[1:3] == ":\\"
+    is_unc = normalised.startswith("\\\\")
+
+    if not (is_drive_absolute or is_unc):
+        # Relative path — the prefix is not applicable.
+        return path
+
+    if is_unc:
+        # UNC paths must use the \\?\UNC\ form: drop the leading "\\" and
+        # replace it with "\\?\UNC\".  Example:
+        #   \\server\share\data  →  \\?\UNC\server\share\data
+        return "\\\\?\\UNC\\" + normalised[2:]
+
+    # Standard drive-letter path.  Example:  C:\data  →  \\?\C:\data
+    return "\\\\?\\" + normalised
+
+
+# ---------------------------------------------------------------------------
 # Pure command-building helper
 # ---------------------------------------------------------------------------
 
@@ -293,6 +353,12 @@ def build_command(
         raise ValueError("Source path is required.")
     if not dst:
         raise ValueError("Destination path is required.")
+
+    # Prepend the Win32 extended-length path prefix so that robocopy is not
+    # constrained by the historic 260-character MAX_PATH limit.  This is a
+    # no-op on non-Windows platforms and on relative paths.
+    src = _apply_extended_path_prefix(src)
+    dst = _apply_extended_path_prefix(dst)
 
     cmd: list[str] = ["robocopy", src, dst]
 

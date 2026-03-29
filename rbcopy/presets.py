@@ -84,9 +84,7 @@ class CustomPreset(BaseModel):
                 raise ValueError(f"flag key must be a string, got {type(key).__name__!r}")
             # isinstance(1, bool) is False; isinstance(True, int) is True — check bool first.
             if not isinstance(val, bool):
-                raise ValueError(
-                    f"flag value for {key!r} must be a bool, got {type(val).__name__!r}"
-                )
+                raise ValueError(f"flag value for {key!r} must be a bool, got {type(val).__name__!r}")
         return v
 
     @field_validator("params", mode="before")
@@ -104,21 +102,12 @@ class CustomPreset(BaseModel):
             if not isinstance(key, str):
                 raise ValueError(f"param key must be a string, got {type(key).__name__!r}")
             if not isinstance(val, (list, tuple)) or len(val) != 2:
-                raise ValueError(
-                    f"param value for {key!r} must be a (bool, str) pair,"
-                    f" got {type(val).__name__!r}"
-                )
+                raise ValueError(f"param value for {key!r} must be a (bool, str) pair, got {type(val).__name__!r}")
             enabled, value = val[0], val[1]
             if not isinstance(enabled, bool):
-                raise ValueError(
-                    f"first element of param {key!r} must be a bool,"
-                    f" got {type(enabled).__name__!r}"
-                )
+                raise ValueError(f"first element of param {key!r} must be a bool, got {type(enabled).__name__!r}")
             if not isinstance(value, str):
-                raise ValueError(
-                    f"second element of param {key!r} must be a str,"
-                    f" got {type(value).__name__!r}"
-                )
+                raise ValueError(f"second element of param {key!r} must be a str, got {type(value).__name__!r}")
         return v
 
 

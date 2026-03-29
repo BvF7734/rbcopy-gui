@@ -951,9 +951,10 @@ def test_dry_run_starts_background_thread() -> None:
 
     with patch("rbcopy.gui.main_window.validate_command", return_value=ok_result):
         with patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls:
-            mock_thread = MagicMock()
-            mock_thread_cls.return_value = mock_thread
-            RobocopyGUI._dry_run(fake_self)
+            with patch("rbcopy.builder.sys.platform", "linux"):
+                mock_thread = MagicMock()
+                mock_thread_cls.return_value = mock_thread
+                RobocopyGUI._dry_run(fake_self)
 
     mock_thread_cls.assert_called_once_with(
         target=fake_self._execute,
