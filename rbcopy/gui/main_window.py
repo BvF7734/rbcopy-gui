@@ -31,6 +31,7 @@ from rbcopy.builder import (
     exit_code_label,
     validate_command,
 )
+from rbcopy.path_history import PathHistoryStore
 from rbcopy.presets import CustomPreset, CustomPresetsStore
 
 from rbcopy.gui.job_history import _JobHistoryWindow
@@ -337,6 +338,9 @@ class RobocopyGUI(tk.Tk):
         self._presets_store: CustomPresetsStore = CustomPresetsStore()
         self._custom_menu: tk.Menu  # assigned in _build_menu
 
+        # Path history store for source/destination Combobox dropdowns.
+        self._path_history: PathHistoryStore = PathHistoryStore()
+
         # Reference to the currently-running robocopy subprocess, if any.
         # Set by _async_execute on the worker thread; read by _exit on the main thread.
         self._current_proc: asyncio.subprocess.Process | None = None
@@ -416,13 +420,16 @@ class RobocopyGUI(tk.Tk):
         ttk.Label(path_frame, text="Source:").grid(row=0, column=0, sticky="w", pady=2)
         self.src_var = tk.StringVar()
         # Keep a reference so _init_dnd can register the source entry as a drop target.
-        self._src_entry = ttk.Entry(path_frame, textvariable=self.src_var)
+        # ttk.Combobox inherits from ttk.Entry so DnD registration is unchanged.
+        self._src_entry = ttk.Combobox(path_frame, textvariable=self.src_var, values=[])
+        self._src_entry["postcommand"] = self._refresh_src_dropdown
         self._src_entry.grid(row=0, column=1, sticky="ew", padx=4)
         ttk.Button(path_frame, text="Browse…", command=self._browse_src).grid(row=0, column=2)
 
         ttk.Label(path_frame, text="Destination:").grid(row=1, column=0, sticky="w", pady=2)
         self.dst_var = tk.StringVar()
-        self._dst_entry = ttk.Entry(path_frame, textvariable=self.dst_var)
+        self._dst_entry = ttk.Combobox(path_frame, textvariable=self.dst_var, values=[])
+        self._dst_entry["postcommand"] = self._refresh_dst_dropdown
         self._dst_entry.grid(row=1, column=1, sticky="ew", padx=4)
         self._dst_browse_btn = ttk.Button(path_frame, text="Browse…", command=self._browse_dst)
         self._dst_browse_btn.grid(row=1, column=2)
@@ -887,6 +894,19 @@ class RobocopyGUI(tk.Tk):
         if path:
             self.dst_var.set(path)
 
+    def _refresh_src_dropdown(self) -> None:
+        """Populate the source Combobox values from path history (postcommand callback)."""
+        self._refresh_path_dropdowns()
+
+    def _refresh_dst_dropdown(self) -> None:
+        """Populate the destination Combobox values from path history (postcommand callback)."""
+        self._refresh_path_dropdowns()
+
+    def _refresh_path_dropdowns(self) -> None:
+        """Sync both path Combobox value lists from the path history store."""
+        self._src_entry["values"] = self._path_history.get_source_paths()
+        self._dst_entry["values"] = self._path_history.get_destination_paths()
+
     def _save_geometry(self) -> None:
         """Persist the current window size and position to disk.
 
@@ -1123,6 +1143,8 @@ class RobocopyGUI(tk.Tk):
 
         self._append_output("Dry run command:\n  " + " ".join(cmd) + "\n")
         logger.info("Launching dry run: %s", " ".join(cmd))
+        self._path_history.add_source(src)
+        self._path_history.add_destination(dst)
         threading.Thread(target=self._execute, args=(cmd,), daemon=True).start()
 
     def _run(self) -> None:
@@ -1164,6 +1186,8 @@ class RobocopyGUI(tk.Tk):
 
         logger.info("Launching robocopy: %s", " ".join(cmd))
         self._append_output("Running: " + " ".join(cmd) + "\n")
+        self._path_history.add_source(src)
+        self._path_history.add_destination(dst)
         threading.Thread(target=self._execute, args=(cmd,), daemon=True).start()
 
     def _export_script(self, cmd: list[str]) -> None:
