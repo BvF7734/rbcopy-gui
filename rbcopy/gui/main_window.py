@@ -13,7 +13,7 @@ from datetime import datetime
 from functools import partial
 from logging import getLogger
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 from typing import Any, Literal
 from rbcopy.notifications import notify_job_complete
 from rbcopy.app_dirs import get_data_dir
@@ -31,6 +31,7 @@ from rbcopy.builder import (
     exit_code_label,
     validate_command,
 )
+from rbcopy.bookmarks import BookmarksStore
 from rbcopy.path_history import PathHistoryStore
 from rbcopy.presets import CustomPreset, CustomPresetsStore
 
@@ -338,6 +339,10 @@ class RobocopyGUI(tk.Tk):
         self._presets_store: CustomPresetsStore = CustomPresetsStore()
         self._custom_menu: tk.Menu  # assigned in _build_menu
 
+        # Bookmarks store and menu reference must exist before _build_menu is called.
+        self._bookmarks_store: BookmarksStore = BookmarksStore()
+        self._bookmarks_menu: tk.Menu  # assigned in _build_menu
+
         # Path history store for source/destination Combobox dropdowns.
         self._path_history: PathHistoryStore = PathHistoryStore()
 
@@ -425,6 +430,12 @@ class RobocopyGUI(tk.Tk):
         self._src_entry["postcommand"] = self._refresh_src_dropdown
         self._src_entry.grid(row=0, column=1, sticky="ew", padx=4)
         ttk.Button(path_frame, text="Browse…", command=self._browse_src).grid(row=0, column=2)
+        ttk.Button(
+            path_frame,
+            text="★",
+            width=2,
+            command=lambda: self._bookmark_field("source"),
+        ).grid(row=0, column=3, padx=(2, 0))
 
         ttk.Label(path_frame, text="Destination:").grid(row=1, column=0, sticky="w", pady=2)
         self.dst_var = tk.StringVar()
@@ -433,6 +444,12 @@ class RobocopyGUI(tk.Tk):
         self._dst_entry.grid(row=1, column=1, sticky="ew", padx=4)
         self._dst_browse_btn = ttk.Button(path_frame, text="Browse…", command=self._browse_dst)
         self._dst_browse_btn.grid(row=1, column=2)
+        ttk.Button(
+            path_frame,
+            text="★",
+            width=2,
+            command=lambda: self._bookmark_field("destination"),
+        ).grid(row=1, column=3, padx=(2, 0))
 
         # ── File Filter ───────────────────────────────────────────────
         self._file_filter_cb = ttk.Checkbutton(
@@ -576,6 +593,11 @@ class RobocopyGUI(tk.Tk):
 
         self._props_only_var.trace_add("write", self._on_properties_only_toggle)
         self._rebuild_custom_menu()
+
+        # ── Bookmarks menu ─────────────────────────────────────────────
+        self._bookmarks_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Bookmarks", menu=self._bookmarks_menu)
+        self._rebuild_bookmarks_menu()
 
     def _build_flags(
         self,
@@ -1058,6 +1080,68 @@ class RobocopyGUI(tk.Tk):
                 command=partial(self._delete_custom_preset, preset.name),
             )
         self._refresh_preset_combo()
+
+    # ------------------------------------------------------------------
+    # Bookmark management
+    # ------------------------------------------------------------------
+
+    def _bookmark_field(self, field: Literal["source", "destination"]) -> None:
+        """Prompt for a name and save the current field path as a bookmark.
+
+        Args:
+            field: Which path field to bookmark — ``"source"`` or ``"destination"``.
+        """
+        path = self.src_var.get() if field == "source" else self.dst_var.get()
+        name = simpledialog.askstring(
+            "Add Bookmark",
+            f"Enter a name for this {field} bookmark:",
+            parent=self,
+        )
+        if not name or not name.strip():
+            return
+        if not self._bookmarks_store.add_bookmark(name.strip(), path):
+            messagebox.showerror(
+                "Save Failed",
+                f"Bookmark '{name.strip()}' could not be saved to disk.\n"
+                "Check available disk space and file permissions.",
+                parent=self,
+            )
+            return
+        self._rebuild_bookmarks_menu()
+
+    def _rebuild_bookmarks_menu(self) -> None:
+        """Repopulate the Bookmarks menu from the current bookmarks store.
+
+        The menu always starts with two quick-bookmark commands, followed by a
+        separator, then the stored bookmarks (each with a submenu offering
+        "Set as source" / "Set as destination").  A disabled placeholder is
+        shown when no bookmarks exist yet.
+        """
+        self._bookmarks_menu.delete(0, "end")
+        self._bookmarks_menu.add_command(
+            label="Bookmark source path\u2026",
+            command=lambda: self._bookmark_field("source"),
+        )
+        self._bookmarks_menu.add_command(
+            label="Bookmark destination path\u2026",
+            command=lambda: self._bookmark_field("destination"),
+        )
+        self._bookmarks_menu.add_separator()
+        bookmarks = self._bookmarks_store.get_bookmarks()
+        if not bookmarks:
+            self._bookmarks_menu.add_command(label="(no bookmarks)", state="disabled")
+            return
+        for bookmark in bookmarks:
+            sub = tk.Menu(self._bookmarks_menu, tearoff=0)
+            self._bookmarks_menu.add_cascade(label=bookmark.name, menu=sub)
+            sub.add_command(
+                label="Set as source",
+                command=partial(self.src_var.set, bookmark.path),
+            )
+            sub.add_command(
+                label="Set as destination",
+                command=partial(self.dst_var.set, bookmark.path),
+            )
 
     def _get_selections(self) -> tuple[dict[str, bool], dict[str, tuple[bool, str]]]:
         """Return the current flag and param selections from the UI widgets."""
