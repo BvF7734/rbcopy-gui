@@ -529,6 +529,126 @@ def test_load_bundled_presets_returns_empty_on_bad_json(tmp_path: Path) -> None:
     assert result == []
 
 
+# ---------------------------------------------------------------------------
+# CustomPreset – strict field validation
+# ---------------------------------------------------------------------------
+
+
+def test_custom_preset_rejects_non_string_source() -> None:
+    """source must be a string; integers must be rejected."""
+    with pytest.raises(ValidationError):
+        CustomPreset(name="x", source=123)  # type: ignore[arg-type]
+
+
+def test_custom_preset_rejects_non_string_destination() -> None:
+    """destination must be a string; integers must be rejected."""
+    with pytest.raises(ValidationError):
+        CustomPreset(name="x", destination=456)  # type: ignore[arg-type]
+
+
+def test_custom_preset_rejects_non_dict_flags() -> None:
+    """flags must be a dict; a list must be rejected."""
+    with pytest.raises(ValidationError):
+        CustomPreset(name="x", flags=["/MIR", "/NP"])  # type: ignore[arg-type]
+
+
+def test_custom_preset_rejects_integer_as_bool_flag_value() -> None:
+    """flags values must be strict booleans; integer 1 must be rejected."""
+    with pytest.raises(ValidationError):
+        CustomPreset(name="x", flags={"/MIR": 1})  # type: ignore[dict-item]
+
+
+def test_custom_preset_rejects_string_as_bool_flag_value() -> None:
+    """flags values must be strict booleans; string 'yes' must be rejected."""
+    with pytest.raises(ValidationError):
+        CustomPreset(name="x", flags={"/MIR": "yes"})  # type: ignore[dict-item]
+
+
+def test_custom_preset_rejects_non_string_flag_keys() -> None:
+    """flags keys must be strings; integer keys must be rejected."""
+    with pytest.raises(ValidationError):
+        CustomPreset.model_validate({"name": "x", "flags": {1: True}})
+
+
+def test_custom_preset_rejects_non_dict_params() -> None:
+    """params must be a dict; a list must be rejected."""
+    with pytest.raises(ValidationError):
+        CustomPreset(name="x", params=[("/MT", True, "8")])  # type: ignore[arg-type]
+
+
+def test_custom_preset_rejects_integer_as_bool_param_element() -> None:
+    """First element of a param pair must be a strict bool; integer 1 must be rejected."""
+    with pytest.raises(ValidationError):
+        CustomPreset(name="x", params={"/MT": (1, "8")})  # type: ignore[dict-item]
+
+
+def test_custom_preset_rejects_string_as_bool_param_element() -> None:
+    """First element of a param pair must be a strict bool; string 'yes' must be rejected."""
+    with pytest.raises(ValidationError):
+        CustomPreset(name="x", params={"/MT": ("yes", "8")})  # type: ignore[dict-item]
+
+
+def test_custom_preset_rejects_non_string_second_param_element() -> None:
+    """Second element of a param pair must be a string; an integer must be rejected."""
+    with pytest.raises(ValidationError):
+        CustomPreset(name="x", params={"/MT": (True, 8)})  # type: ignore[dict-item]
+
+
+def test_custom_preset_rejects_non_string_param_keys() -> None:
+    """params keys must be strings; integer keys must be rejected."""
+    with pytest.raises(ValidationError):
+        CustomPreset.model_validate({"name": "x", "params": {1: [True, "8"]}})
+
+
+# ---------------------------------------------------------------------------
+# CustomPresetsStore – ValidationError recovery
+# ---------------------------------------------------------------------------
+
+
+def test_store_recovers_from_schema_invalid_preset_file(tmp_path: Path) -> None:
+    """A file with valid JSON but invalid schema is silently skipped; store starts empty."""
+    presets_path = tmp_path / "presets.json"
+    # Integer flag value is valid JSON but violates the strict bool constraint.
+    raw = json.dumps([
+        {"name": "bad", "source": "", "destination": "", "flags": {"/MIR": 1}, "params": {}},
+    ])
+    presets_path.write_text(raw, encoding="utf-8")
+
+    with patch("rbcopy.presets._load_bundled_presets", return_value=[]):
+        store = CustomPresetsStore(path=presets_path)
+
+    assert store.presets == []
+
+
+def test_store_recovers_from_bad_param_types_in_file(tmp_path: Path) -> None:
+    """A file where params contain wrong types is handled gracefully."""
+    presets_path = tmp_path / "presets.json"
+    # First param element is a string instead of bool.
+    raw = json.dumps([
+        {"name": "bad", "source": "", "destination": "", "flags": {}, "params": {"/MT": ["yes", "8"]}},
+    ])
+    presets_path.write_text(raw, encoding="utf-8")
+
+    with patch("rbcopy.presets._load_bundled_presets", return_value=[]):
+        store = CustomPresetsStore(path=presets_path)
+
+    assert store.presets == []
+
+
+def test_store_recovers_from_non_string_source_in_file(tmp_path: Path) -> None:
+    """A file where source/destination are not strings is handled gracefully."""
+    presets_path = tmp_path / "presets.json"
+    raw = json.dumps([
+        {"name": "bad", "source": 999, "destination": "", "flags": {}, "params": {}},
+    ])
+    presets_path.write_text(raw, encoding="utf-8")
+
+    with patch("rbcopy.presets._load_bundled_presets", return_value=[]):
+        store = CustomPresetsStore(path=presets_path)
+
+    assert store.presets == []
+
+
 def test_load_bundled_presets_returns_empty_on_invalid_preset_data() -> None:
     """_load_bundled_presets must return [] when JSON is valid but preset data fails validation."""
     # An empty name violates the CustomPreset min_length=1 validator.
