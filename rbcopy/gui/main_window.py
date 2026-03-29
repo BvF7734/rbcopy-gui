@@ -14,7 +14,7 @@ from functools import partial
 from logging import getLogger
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
-from typing import Any, Literal
+from typing import Any, Callable, Dict, Literal
 from rbcopy.notifications import notify_job_complete
 from rbcopy.app_dirs import get_data_dir
 
@@ -223,6 +223,85 @@ class _ToolTip:
 
     def _hide(self) -> None:
         if self._tip_window:
+            self._tip_window.destroy()
+            self._tip_window = None
+
+
+class _PresetDropdownTooltip:
+    """Per-item description tooltips for the Preset combobox dropdown.
+
+    When the dropdown list is open, hovering over an item that has a
+    description shows it in a small tooltip window beside the cursor.
+    Falls back silently if the Tk internal popdown widget cannot be
+    located (e.g. on an unusual Tk build).
+
+    Args:
+        combo:            The combobox to attach to.
+        get_descriptions: Callable that returns a ``{name: description}``
+                          mapping.  Called lazily at hover time so it
+                          always reflects the live preset list.
+    """
+
+    _FONT_SIZE: int = 9
+    _WRAP_LENGTH: int = 320
+
+    def __init__(self, combo: ttk.Combobox, get_descriptions: Callable[[], Dict[str, str]]) -> None:
+        self._combo = combo
+        self._get_descriptions = get_descriptions
+        self._tip_window: tk.Toplevel | None = None
+        combo.bind("<<ComboboxOpened>>", self._on_opened)
+        combo.bind("<<ComboboxClosed>>", lambda _e: self._hide())
+
+    def _on_opened(self, _event: tk.Event[Any]) -> None:
+        """Bind motion on the internal listbox once the dropdown is open."""
+        try:
+            popdown: str = self._combo.tk.eval(f"ttk::combobox::PopdownWindow {self._combo}")
+            # Access the internal Listbox via the Tk widget registry.  The cast
+            # is necessary because tk.nametowidget lives on Misc, not TkappType.
+            lb: tk.Listbox = self._combo.nametowidget(f"{popdown}.f.l")
+            lb.bind("<Motion>", self._on_motion)
+            lb.bind("<Leave>", lambda _e: self._hide())
+        except Exception:
+            logger.debug("_PresetDropdownTooltip: could not bind to popdown listbox", exc_info=True)
+
+    def _on_motion(self, event: tk.Event[Any]) -> None:
+        """Show the description for the list item under the cursor."""
+        lb: tk.Listbox = event.widget
+        idx: int = lb.nearest(event.y)  # type: ignore[no-untyped-call]
+        values: list[str] = list(self._combo["values"])
+        if idx < 0 or idx >= len(values):
+            self._hide()
+            return
+        desc: str = self._get_descriptions().get(values[idx], "")
+        if not desc:
+            self._hide()
+            return
+        self._show(event.x_root, event.y_root, desc)
+
+    def _show(self, x: int, y: int, text: str) -> None:
+        """Display the tooltip window offset from (*x*, *y*)."""
+        # Skip re-creation if the same text is already showing — avoids flicker.
+        if self._tip_window is not None:
+            children = self._tip_window.winfo_children()
+            if children and children[0].cget("text") == text:
+                return
+        self._hide()
+        self._tip_window = tw = tk.Toplevel(self._combo)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x + 16}+{y + 4}")
+        tk.Label(
+            tw,
+            text=text,
+            justify="left",
+            background="#ffffe0",
+            relief="solid",
+            borderwidth=1,
+            font=("TkDefaultFont", self._FONT_SIZE),
+            wraplength=self._WRAP_LENGTH,
+        ).pack(ipadx=4, ipady=2)
+
+    def _hide(self) -> None:
+        if self._tip_window is not None:
             self._tip_window.destroy()
             self._tip_window = None
 
@@ -487,6 +566,7 @@ class RobocopyGUI(tk.Tk):
         self._preset_combo = ttk.Combobox(path_frame, textvariable=self._preset_var, state="readonly", width=30)
         self._preset_combo.grid(row=3, column=1, sticky="ew", padx=4, pady=(4, 0))
         self._preset_combo.bind("<<ComboboxSelected>>", self._on_preset_selected)
+        _PresetDropdownTooltip(self._preset_combo, self._get_preset_description_map)
 
         self._param_vars = {}
         self._flag_cbs = {}
@@ -496,9 +576,18 @@ class RobocopyGUI(tk.Tk):
         btn_frame = ttk.Frame(content)
         btn_frame.pack(fill="x", **padding)
 
-        ttk.Button(btn_frame, text="Preview Command", command=self._preview).pack(side="left", padx=(0, 6))
+        _btn_preview = ttk.Button(btn_frame, text="Preview Command", command=self._preview)
+        _btn_preview.pack(side="left", padx=(0, 6))
+        _ToolTip(
+            _btn_preview,
+            "Builds the robocopy command from the current settings and prints it to the output — nothing is copied.",
+        )
         self._btn_dry_run = ttk.Button(btn_frame, text="🔍 Dry Run", command=self._dry_run)
         self._btn_dry_run.pack(side="left", padx=(0, 6))
+        _ToolTip(
+            self._btn_dry_run,
+            "Runs robocopy with /L (list only). Shows which files would be copied without making any changes to disk.",
+        )
         self._btn_run = ttk.Button(btn_frame, text="▶  Run", command=self._run)
         self._btn_run.pack(side="left", padx=(0, 6))
         self._btn_stop = ttk.Button(btn_frame, text="⏹  Stop", command=self._stop, state="disabled")
@@ -506,6 +595,7 @@ class RobocopyGUI(tk.Tk):
         ttk.Button(btn_frame, text="Clear Output", command=self._clear_output).pack(side="right")
         self._btn_advanced = ttk.Button(btn_frame, text="⚙ Advanced ▸", command=self._toggle_advanced)
         self._btn_advanced.pack(side="right", padx=(0, 4))
+        _ToolTip(self._btn_advanced, "Show or hide additional robocopy flags and parameters.")
 
         # ── Output console ────────────────────────────────────────────
         out_frame = ttk.LabelFrame(content, text="Output", padding=4)
@@ -731,6 +821,26 @@ class RobocopyGUI(tk.Tk):
             return
         names = ["Properties Only"] + [p.name for p in self._presets_store.presets]
         self._preset_combo["values"] = names
+
+    def _get_preset_description_map(self) -> Dict[str, str]:
+        """Return a ``{name: description}`` map for all available presets.
+
+        Used by :class:`_PresetDropdownTooltip` to display per-item
+        descriptions while the user hovers inside the Preset dropdown.
+        Custom presets without a description are omitted so the tooltip
+        only appears when there is something useful to say.
+        """
+        descriptions: Dict[str, str] = {
+            "Properties Only": (
+                f"Sets destination to {PROPERTIES_ONLY_DST} and forces "
+                "/L /MIR /NFL /NDL /MT:48 /R:0 /W:0.\n"
+                "Safe: lists file differences without copying anything."
+            ),
+        }
+        for preset in self._presets_store.presets:
+            if preset.description:
+                descriptions[preset.name] = preset.description
+        return descriptions
 
     # ------------------------------------------------------------------
     # Drag-and-drop
