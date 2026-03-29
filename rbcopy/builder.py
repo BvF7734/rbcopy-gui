@@ -357,8 +357,11 @@ def build_command(
     # Prepend the Win32 extended-length path prefix so that robocopy is not
     # constrained by the historic 260-character MAX_PATH limit.  This is a
     # no-op on non-Windows platforms and on relative paths.
-    src = _apply_extended_path_prefix(src)
-    dst = _apply_extended_path_prefix(dst)
+    # constrained by the historic 260-character MAX_PATH limit.  This is a
+    # no-op on non-Windows platforms and on relative paths.
+    if sys.platform == "win32":
+        src = _apply_extended_path_prefix(src)
+        dst = _apply_extended_path_prefix(dst)
 
     cmd: list[str] = ["robocopy", src, dst]
 
