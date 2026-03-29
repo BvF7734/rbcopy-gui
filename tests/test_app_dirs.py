@@ -6,7 +6,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 import rbcopy.app_dirs as app_dirs_module
@@ -248,6 +248,18 @@ def test_clear_data_dir_returns_true_when_file_absent(tmp_path: Path) -> None:
     assert result is True
 
 
+def test_clear_data_dir_returns_false_on_unlink_failure(tmp_path: Path) -> None:
+    """clear_data_dir returns False when unlink raises OSError."""
+    bootstrap = tmp_path / ".rbcopy_location"
+    bootstrap.write_text("{}", encoding="utf-8")
+
+    with patch.object(app_dirs_module, "_BOOTSTRAP_PATH", bootstrap):
+        with patch("pathlib.Path.unlink", side_effect=OSError("permission denied")):
+            result = clear_data_dir()
+
+    assert result is False
+
+
 # ---------------------------------------------------------------------------
 # validate_data_dir
 # ---------------------------------------------------------------------------
@@ -287,3 +299,33 @@ def test_validate_data_dir_does_not_leave_probe_file(tmp_path: Path) -> None:
     validate_data_dir(target)
     probe_files = list(target.glob(".rbcopy_write_test"))
     assert probe_files == []
+
+
+def test_validate_data_dir_returns_error_on_unresolvable_path(tmp_path: Path) -> None:
+    """validate_data_dir returns an error string when path.resolve() raises."""
+    # tmp_path is always absolute. Simulating a path that cannot be resolved
+    # (e.g. a path exceeding MAX_PATH on Windows or a dangling symlink).
+    with patch("pathlib.Path.resolve", side_effect=OSError("bad path")):
+        result = validate_data_dir(tmp_path / "test_path")
+    assert result is not None
+    assert "Invalid path" in result
+
+
+def test_validate_data_dir_continues_when_home_resolve_fails(tmp_path: Path) -> None:
+    """validate_data_dir skips the home-dir check if Path.home().resolve() raises."""
+    # Patch only Path.home() so that its .resolve() call raises OSError, triggering
+    # the 'except OSError: pass' branch. The actual path under test uses tmp_path
+    # which is real and writable, so the function should succeed.
+    mock_home = MagicMock()
+    mock_home.resolve.side_effect = OSError("home unavailable")
+    with patch("pathlib.Path.home", return_value=mock_home):
+        result = validate_data_dir(tmp_path / "subdir")
+    assert result is None
+
+
+def test_validate_data_dir_returns_error_when_not_writable(tmp_path: Path) -> None:
+    """validate_data_dir returns a 'not writable' message when mkdir/write raises."""
+    with patch("pathlib.Path.mkdir", side_effect=OSError("read-only filesystem")):
+        result = validate_data_dir(tmp_path / "locked_dir")
+    assert result is not None
+    assert "not writable" in result.lower()

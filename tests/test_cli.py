@@ -205,3 +205,48 @@ def test_missing_source_shows_error():
 def test_missing_source_and_dest_shows_error():
     result = runner.invoke(app, ["sync"])
     assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# main callback – GUI launch (no subcommand)
+# ---------------------------------------------------------------------------
+
+
+def test_main_no_subcommand_launches_gui() -> None:
+    """Invoking the app with no subcommand should call launch() (the GUI entry point)."""
+    with patch("rbcopy.gui.launch") as mock_launch:
+        result = runner.invoke(app, [])
+    mock_launch.assert_called_once()
+    assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# sync subcommand – log rotation failure is non-fatal
+# ---------------------------------------------------------------------------
+
+
+def test_sync_log_rotation_failure_is_non_fatal(log_dir: Path) -> None:
+    """A failure in log rotation must not abort the sync command."""
+    mock_proc = make_mock_async_proc(returncode=0)
+    with _PATCH_PREFLIGHT, _PATCH_NOTIFY:
+        with patch("rbcopy.cli.rotate_logs", side_effect=RuntimeError("rotation failed")):
+            with patch("rbcopy.cli.asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
+                result = runner.invoke(app, ["sync", "--source", "C:/src", "--dest", "C:/dst"])
+    # The copy must still succeed even though rotation raised
+    assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# cli.py __main__ guard
+# ---------------------------------------------------------------------------
+
+
+def test_cli_module_main_guard_invokes_app() -> None:
+    """Running rbcopy/cli.py directly as __main__ should call the Typer app."""
+    import runpy
+    from unittest.mock import MagicMock
+
+    mock_app_instance = MagicMock()
+    with patch("typer.Typer", return_value=mock_app_instance):
+        runpy.run_module("rbcopy.cli", run_name="__main__")
+    mock_app_instance.assert_called_once()

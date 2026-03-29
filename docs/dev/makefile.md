@@ -210,17 +210,17 @@ make dapperdata_fixes
 
 ### `make tomlsort_fixes`
 
-**Purpose**: Sort and format TOML files.
+**Purpose**: Format TOML files using tombi.
 
 **What it does**:
 
-- Sorts keys in TOML files alphabetically
-- Ensures consistent TOML formatting
+- Runs `tombi format` on all `.toml` files in the project
+- Ensures consistent TOML formatting according to tombi's style rules
 
 **Usage**:
 
 ```bash
-# Sort TOML files
+# Format TOML files
 make tomlsort_fixes
 ```
 
@@ -273,17 +273,18 @@ make pytest_loud
 **Output Example**:
 
 ```
-tests/test_api.py ........                                           [ 25%]
-tests/test_models.py ............                                    [ 75%]
-tests/test_services.py ....                                          [100%]
+tests/test_builder.py ................                                [ 30%]
+tests/test_cli.py ............                                        [ 55%]
+tests/test_presets.py .........                                       [100%]
 
----------- coverage: platform darwin, python 3.12.0 -----------
-Name                           Stmts   Miss  Cover   Missing
-------------------------------------------------------------
-myproject/__init__.py              4      0   100%
-myproject/services/cache.py       45      2    96%   78-79
-------------------------------------------------------------
-TOTAL                            250      2    99%
+---------- coverage: platform win32, python 3.12.0 -----------
+Name                               Stmts   Miss  Cover   Missing
+----------------------------------------------------------------
+rbcopy/builder.py                    120      2    98%   45-46
+rbcopy/cli.py                         55      3    95%   78-80
+rbcopy/presets.py                     60      0   100%
+----------------------------------------------------------------
+TOTAL                                450      5    99%
 ```
 
 ### `make pytest_loud`
@@ -372,17 +373,17 @@ make dapperdata_check
 
 ### `make tomlsort_check`
 
-**Purpose**: Verify TOML files are properly sorted.
+**Purpose**: Verify TOML files are properly formatted.
 
 **What it does**:
 
-- Checks if TOML files are sorted alphabetically
-- Exits with error if sorting is needed
+- Runs `tombi lint` and `tombi format --check` on all `.toml` files
+- Exits with error if any file does not conform to tombi's formatting rules
 
 **Usage**:
 
 ```bash
-# Check TOML sorting
+# Check TOML formatting
 make tomlsort_check
 ```
 

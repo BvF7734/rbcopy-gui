@@ -92,13 +92,15 @@ Build packages locally for testing:
 
 ```bash
 # Build source distribution and wheel
-make build
+make package
 
 # Output in dist/ directory
 ls dist/
 # rbcopy-1.2.3.tar.gz
 # rbcopy-1.2.3-py3-none-any.whl
 ```
+
+> **Note**: `make build` builds the Windows executable (requires `VERSION=vX.Y.Z`). Use `make package` to produce the Python `.whl` / `.tar.gz` distribution files.
 
 **Build Artifacts**:
 
@@ -196,7 +198,7 @@ jobs:
         run: make install
 
       - name: Build Wheel
-        run: make build
+        run: make package
 
       - name: Publish package
         if: env.PUBLISH_TO_PYPI == 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
@@ -265,7 +267,7 @@ If you prefer to publish the first version manually:
 
 ```bash
 # Build package
-make build
+make package
 
 # Install twine
 pip install twine
@@ -317,7 +319,7 @@ git pull
 make tests
 
 # Verify build works
-make build
+make package
 
 # Check package metadata
 pip install twine
@@ -388,7 +390,7 @@ Before tagging a release:
 - [ ] Documentation is up-to-date
 - [ ] Breaking changes documented (if major version)
 - [ ] Dependencies are up-to-date
-- [ ] Build succeeds locally (`make build`)
+- [ ] Build succeeds locally (`make package`)
 - [ ] Package check passes (`twine check dist/*`)
 - [ ] OIDC trusted publisher configured on PyPI
 
@@ -564,7 +566,7 @@ If needed, you can publish manually:
 
 ```bash
 # Build package
-make build
+make package
 
 # Install twine
 pip install twine

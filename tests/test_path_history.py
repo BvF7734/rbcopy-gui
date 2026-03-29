@@ -431,3 +431,24 @@ def test_load_caps_destination_to_max_paths(tmp_path: Path) -> None:
 
     store = PathHistoryStore(path=history_path)
     assert len(store.get_destination_paths()) == MAX_PATHS
+
+
+# ---------------------------------------------------------------------------
+# PathHistoryStore – flush disk error is swallowed
+# ---------------------------------------------------------------------------
+
+
+def test_flush_oserror_is_silently_ignored(tmp_path: Path) -> None:
+    """An OSError during flush() is logged and swallowed; the store stays usable."""
+    from unittest.mock import patch
+
+    history_path = tmp_path / "history.json"
+    store = PathHistoryStore(path=history_path)
+    store.add_source("/any/path")
+
+    with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+        # Must not raise even though the underlying write fails
+        store.flush()
+
+    # In-memory state is still intact
+    assert store.get_source_paths() == ["/any/path"]

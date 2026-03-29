@@ -32,21 +32,28 @@ CI/CD workflows for testing, linting, building, and deployment automation.
 
 ## Architecture Overview
 
-rbcopy is structured in five layers:
+rbcopy is structured in several layers:
 
 | Module | Purpose |
 |--------|---------|
-| `rbcopy/builder.py` | Pure logic – option tables, `build_command()`, and `build_robocopy_command()`. No GUI dependency; fully unit-testable. |
+| `rbcopy/builder.py` | Pure logic – option tables, `build_command()`, `build_batch_script()`, and `build_powershell_script()`. No GUI dependency; fully unit-testable. |
+| `rbcopy/cli.py` | Typer CLI with a `sync` subcommand (named options) and a no-args callback that launches the GUI. |
 | `rbcopy/system_check.py` | Pre-flight checks – verifies `robocopy.exe` is on PATH and (on Windows) that the process has Administrator privileges. |
 | `rbcopy/logger.py` | Unified logging – configures the `rbcopy` logger with a Rich console handler (INFO+) and a timestamped file handler (DEBUG+). |
-| `rbcopy/gui/` | Tkinter GUI package. `main_window.py` imports from `builder.py` and drives the visual layer; sub-modules cover drag-and-drop (`dnd.py`), job history, preferences dialog, and script builder. |
-| `rbcopy/cli.py` | Typer CLI with a `sync` subcommand (named options) and a no-args callback that launches the GUI. |
+| `rbcopy/app_dirs.py` | Single source of truth for the data directory. Resolves from `RBCOPY_DATA_DIR` env var, `~/.rbcopy_location` bootstrap pointer, or platform default (`%LOCALAPPDATA%\RBCopy` on Windows). |
+| `rbcopy/presets.py` | `CustomPreset` Pydantic model and `CustomPresetsStore` – persists named flag/param configurations to `presets.json`; seeds from bundled `presets.json` on first launch. |
+| `rbcopy/bookmarks.py` | `Bookmark` model and `BookmarksStore` – named path bookmarks persisted to `bookmarks.json`. |
+| `rbcopy/path_history.py` | `PathHistoryStore` – remembers recently used source and destination paths (up to 20 per field) across sessions. |
+| `rbcopy/preferences.py` | `AppPreferences` model and `PreferencesStore` – user preferences (default thread/retry/wait counts, log retention) persisted to `preferences.json`. |
+| `rbcopy/notifications.py` | Windows toast notifications via an inline PowerShell command. No-op on non-Windows platforms. |
+| `rbcopy/robocopy_parser.py` | Parses the Robocopy job summary block from a session log file to produce a `RobocopySummary` dataclass. |
+| `rbcopy/gui/` | Tkinter GUI package. `main_window.py` drives the visual layer; sub-modules cover drag-and-drop (`dnd.py`), job history viewer (`job_history.py`), bookmark manager (`bookmark_manager.py`), preferences dialog (`preferences_dialog.py`), and script export (`script_builder.py`). |
 
 ### Robocopy command builder
 
 `build_command(src, dst, flag_selections, param_selections)` in `rbcopy/builder.py` is the single source of truth for translating user selections into a `robocopy` argument list. Both the GUI (`RobocopyGUI._build_command`) and the CLI (`sync` subcommand) call this function, so the logic is never duplicated.
 
-A simplified alternative `build_robocopy_command(source, dest, flags)` accepts a single unified dict where boolean values toggle simple flags and string values supply parameter arguments (e.g. `{"/MIR": True, "/R": "3"}`).
+`build_batch_script(cmd)` and `build_powershell_script(cmd)` wrap a command list in a `.bat` or `.ps1` boilerplate for the script-export feature.
 
 ### Pre-flight checks
 
