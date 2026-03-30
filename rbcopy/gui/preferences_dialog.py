@@ -42,6 +42,11 @@ class _PreferencesDialog(tk.Toplevel):
             that owns the preferences file.
         on_saved: Zero-argument callable invoked after a successful save so
             the caller can react (e.g. re-apply defaults to param fields).
+        on_clear_history: Optional zero-argument callable invoked when the
+            user confirms "Reset path history".  The caller is responsible
+            for flushing the in-memory store and refreshing any dropdowns.
+        on_clear_bookmarks: Optional zero-argument callable invoked when the
+            user confirms "Reset bookmarks".
     """
 
     _THREAD_MIN: int = 1
@@ -58,12 +63,16 @@ class _PreferencesDialog(tk.Toplevel):
         parent: tk.Misc,
         store: PreferencesStore,
         on_saved: Callable[[], None],
+        on_clear_history: Callable[[], None] | None = None,
+        on_clear_bookmarks: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.title("Preferences")
         self.resizable(False, False)
         self._store = store
         self._on_saved = on_saved
+        self._on_clear_history = on_clear_history
+        self._on_clear_bookmarks = on_clear_bookmarks
         self._saved: bool = False
 
         prefs = store.preferences
@@ -95,12 +104,29 @@ class _PreferencesDialog(tk.Toplevel):
         self._add_field(rc_frame, 1, "Retry count  /R:", self._retry_var, "0–1 000 000")
         self._add_field(rc_frame, 2, "Wait seconds  /W:", self._wait_var, f"0–{self._WAIT_MAX}")
 
-        # ── Logging ───────────────────────────────────────────────────
+        # ── Logging ──────────────────────────────────────────────
         log_frame = ttk.LabelFrame(self, text="Logging", padding=6)
         log_frame.pack(fill="x", **padding)
         log_frame.columnconfigure(1, weight=1)
 
         self._add_field(log_frame, 0, "Log files to keep:", self._log_var, f"1–{self._LOG_MAX}")
+
+        # ── Data ─────────────────────────────────────────────────
+        data_frame = ttk.LabelFrame(self, text="Data", padding=6)
+        data_frame.pack(fill="x", **padding)
+
+        ttk.Button(
+            data_frame,
+            text="Reset path history…",
+            command=self._on_reset_history,
+            state="normal" if self._on_clear_history else "disabled",
+        ).pack(anchor="w", pady=2)
+        ttk.Button(
+            data_frame,
+            text="Reset bookmarks…",
+            command=self._on_reset_bookmarks,
+            state="normal" if self._on_clear_bookmarks else "disabled",
+        ).pack(anchor="w", pady=2)
 
         # ── Buttons ───────────────────────────────────────────────────
         btn_frame = ttk.Frame(self)
@@ -199,3 +225,33 @@ class _PreferencesDialog(tk.Toplevel):
         self._saved = True
         self._on_saved()
         self.destroy()
+
+    def _on_reset_history(self) -> None:
+        """Ask for confirmation, then invoke the clear-history callback."""
+        if self._on_clear_history is None:
+            return
+        confirmed = messagebox.askyesno(
+            "Reset Path History",
+            "Clear all saved source and destination path history?\n\nThis cannot be undone.",
+            icon=messagebox.WARNING,
+            default=messagebox.NO,
+            parent=self,
+        )
+        if confirmed:
+            self._on_clear_history()
+            messagebox.showinfo("Done", "Path history has been cleared.", parent=self)
+
+    def _on_reset_bookmarks(self) -> None:
+        """Ask for confirmation, then invoke the clear-bookmarks callback."""
+        if self._on_clear_bookmarks is None:
+            return
+        confirmed = messagebox.askyesno(
+            "Reset Bookmarks",
+            "Delete all saved bookmarks?\n\nThis cannot be undone.",
+            icon=messagebox.WARNING,
+            default=messagebox.NO,
+            parent=self,
+        )
+        if confirmed:
+            self._on_clear_bookmarks()
+            messagebox.showinfo("Done", "All bookmarks have been deleted.", parent=self)

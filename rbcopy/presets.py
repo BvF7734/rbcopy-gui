@@ -14,10 +14,10 @@ import json
 from importlib import resources
 from logging import getLogger
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 from rbcopy.app_dirs import get_data_dir
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 logger = getLogger(__name__)
 
@@ -61,6 +61,55 @@ class CustomPreset(BaseModel):
             raise ValueError("name must not be empty or whitespace-only")
         return v
 
+    @field_validator("source", "destination", mode="before")
+    @classmethod
+    def must_be_string(cls, v: Any) -> str:
+        """Reject non-string values so coercion cannot silently corrupt paths."""
+        if not isinstance(v, str):
+            raise ValueError(f"must be a string, got {type(v).__name__!r}")
+        return v
+
+    @field_validator("flags", mode="before")
+    @classmethod
+    def flags_must_be_dict_of_str_bool(cls, v: Any) -> Any:
+        """Ensure every flag key is a str and every value is a strict bool.
+
+        Integers (0/1) are intentionally rejected: only JSON boolean literals
+        (true/false) are valid flag values.
+        """
+        if not isinstance(v, dict):
+            raise ValueError(f"must be a dict, got {type(v).__name__!r}")
+        for key, val in v.items():
+            if not isinstance(key, str):
+                raise ValueError(f"flag key must be a string, got {type(key).__name__!r}")
+            # isinstance(1, bool) is False; isinstance(True, int) is True — check bool first.
+            if not isinstance(val, bool):
+                raise ValueError(f"flag value for {key!r} must be a bool, got {type(val).__name__!r}")
+        return v
+
+    @field_validator("params", mode="before")
+    @classmethod
+    def params_must_be_dict_of_str_to_bool_str_pairs(cls, v: Any) -> Any:
+        """Ensure every param key is a str and every value is a (bool, str) pair.
+
+        JSON arrays deserialise to Python lists, so both list and tuple inputs
+        are accepted here and Pydantic handles the final list-to-tuple coercion.
+        Integers are rejected as the boolean element (same rationale as flags).
+        """
+        if not isinstance(v, dict):
+            raise ValueError(f"must be a dict, got {type(v).__name__!r}")
+        for key, val in v.items():
+            if not isinstance(key, str):
+                raise ValueError(f"param key must be a string, got {type(key).__name__!r}")
+            if not isinstance(val, (list, tuple)) or len(val) != 2:
+                raise ValueError(f"param value for {key!r} must be a (bool, str) pair, got {type(val).__name__!r}")
+            enabled, value = val[0], val[1]
+            if not isinstance(enabled, bool):
+                raise ValueError(f"first element of param {key!r} must be a bool, got {type(enabled).__name__!r}")
+            if not isinstance(value, str):
+                raise ValueError(f"second element of param {key!r} must be a str, got {type(value).__name__!r}")
+        return v
+
 
 def _load_bundled_presets() -> List[CustomPreset]:
     """Load the presets bundled with the package.
@@ -78,7 +127,7 @@ def _load_bundled_presets() -> List[CustomPreset]:
         raw = bundled.read_text(encoding="utf-8")
         data = json.loads(raw)
         return [CustomPreset.model_validate(p) for p in data]
-    except (FileNotFoundError, json.JSONDecodeError, ValueError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, ValueError, OSError, ValidationError):
         logger.debug("Failed to load bundled presets", exc_info=True)
         return []
 
@@ -179,9 +228,10 @@ class CustomPresetsStore:
             raw = self._path.read_text(encoding="utf-8")
             data = json.loads(raw)
             self._presets = [CustomPreset.model_validate(p) for p in data]
-        except (json.JSONDecodeError, ValueError, OSError):
-            logger.debug(
-                "Failed to load custom presets from %s; initialising empty presets",
+        except (json.JSONDecodeError, ValueError, OSError, ValidationError):
+            logger.warning(
+                "Failed to load custom presets from %s; the file may be corrupted "
+                "or contain invalid data — initialising with empty presets",
                 self._path,
                 exc_info=True,
             )

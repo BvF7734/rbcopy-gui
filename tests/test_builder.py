@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -17,6 +18,7 @@ from rbcopy.builder import (
     SUPERSEDES,
     _DEFAULT_FLAGS,
     _DEFAULT_PARAMS,
+    _apply_extended_path_prefix,
     _powershell_quote,
     build_batch_script,
     build_command,
@@ -123,19 +125,22 @@ def test_build_command_requires_dst() -> None:
 
 def test_build_command_strips_whitespace() -> None:
     """Leading/trailing whitespace in paths is stripped before validation."""
-    cmd = build_command("  C:/source  ", "  C:/destination  ", {}, {})
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("  C:/source  ", "  C:/destination  ", {}, {})
     assert cmd[1] == "C:/source"
     assert cmd[2] == "C:/destination"
 
 
 def test_build_command_minimal() -> None:
-    cmd = build_command("C:/source", "C:/destination", {}, {})
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("C:/source", "C:/destination", {}, {})
     assert cmd == ["robocopy", "C:/source", "C:/destination"]
 
 
 def test_build_command_file_filter_single_pattern() -> None:
     """A single file-pattern token appears between dst and any flags."""
-    cmd = build_command("C:/src", "C:/dst", {}, {}, file_filter="*.img")
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("C:/src", "C:/dst", {}, {}, file_filter="*.img")
     assert cmd == ["robocopy", "C:/src", "C:/dst", "*.img"]
 
 
@@ -154,13 +159,15 @@ def test_build_command_file_filter_appears_before_flags() -> None:
 
 def test_build_command_file_filter_empty_adds_no_tokens() -> None:
     """An empty file_filter must not add any extra tokens to the command."""
-    cmd = build_command("C:/src", "C:/dst", {}, {}, file_filter="")
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("C:/src", "C:/dst", {}, {}, file_filter="")
     assert cmd == ["robocopy", "C:/src", "C:/dst"]
 
 
 def test_build_command_file_filter_whitespace_only_adds_no_tokens() -> None:
     """A whitespace-only file_filter string must not add any extra tokens."""
-    cmd = build_command("C:/src", "C:/dst", {}, {}, file_filter="   ")
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("C:/src", "C:/dst", {}, {}, file_filter="   ")
     assert cmd == ["robocopy", "C:/src", "C:/dst"]
 
 
@@ -303,7 +310,8 @@ def test_properties_only_params_contains_required() -> None:
 
 
 def test_build_robocopy_command_minimal() -> None:
-    cmd = build_robocopy_command("C:/source", "C:/dest", {})
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_robocopy_command("C:/source", "C:/dest", {})
     assert cmd == ["robocopy", "C:/source", "C:/dest"]
 
 
@@ -567,6 +575,63 @@ def test_validate_command_warns_for_redundant_flag_and_empty_param_simultaneousl
     assert any("/E" in w or "redundant" in w for w in result.warnings)
     assert any("/R" in w for w in result.warnings)
     assert len(result.warnings) >= 2
+
+
+# ---------------------------------------------------------------------------
+# _apply_extended_path_prefix – direct unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_apply_extended_path_prefix_noop_on_non_windows() -> None:
+    """The function must return the path unchanged on non-Windows platforms."""
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        assert _apply_extended_path_prefix("C:/source") == "C:/source"
+        assert _apply_extended_path_prefix("/home/user/data") == "/home/user/data"
+
+
+def test_apply_extended_path_prefix_drive_letter_path() -> None:
+    """An absolute drive-letter path gains the \\\\?\\ prefix on Windows."""
+    with patch("rbcopy.builder.sys.platform", "win32"):
+        result = _apply_extended_path_prefix("C:\\Users\\data")
+    assert result == "\\\\?\\C:\\Users\\data"
+
+
+def test_apply_extended_path_prefix_normalises_forward_slashes() -> None:
+    """Forward slashes in an otherwise absolute Windows path are converted to backslashes."""
+    with patch("rbcopy.builder.sys.platform", "win32"):
+        result = _apply_extended_path_prefix("C:/Users/data")
+    assert result == "\\\\?\\C:\\Users\\data"
+
+
+def test_apply_extended_path_prefix_unc_path() -> None:
+    """A UNC path gains the \\\\?\\UNC\\ prefix (not a plain \\\\?\\\\\\\\ prefix)."""
+    with patch("rbcopy.builder.sys.platform", "win32"):
+        result = _apply_extended_path_prefix("\\\\server\\share\\docs")
+    assert result == "\\\\?\\UNC\\server\\share\\docs"
+
+
+def test_apply_extended_path_prefix_already_prefixed_not_doubled() -> None:
+    """A path that already carries the prefix is returned unchanged."""
+    already_prefixed = "\\\\?\\C:\\long\\path"
+    with patch("rbcopy.builder.sys.platform", "win32"):
+        result = _apply_extended_path_prefix(already_prefixed)
+    assert result == already_prefixed
+
+
+def test_apply_extended_path_prefix_relative_path_unchanged() -> None:
+    """A relative path must not receive the prefix even on Windows."""
+    with patch("rbcopy.builder.sys.platform", "win32"):
+        result = _apply_extended_path_prefix("relative\\path\\file")
+    assert result == "relative\\path\\file"
+
+
+def test_apply_extended_path_prefix_applied_in_build_command() -> None:
+    """build_command applies the extended-length prefix to src and dst on Windows."""
+    with patch("rbcopy.builder.sys.platform", "win32"):
+        cmd = build_command("C:/source", "C:/destination", {}, {})
+    assert cmd[0] == "robocopy"
+    assert cmd[1] == "\\\\?\\C:\\source"
+    assert cmd[2] == "\\\\?\\C:\\destination"
 
 
 # ---------------------------------------------------------------------------
@@ -855,3 +920,154 @@ def test_exit_code_label_no_check_log_for_low_codes() -> None:
     # Code 2 and 4 should not.
     assert "log" not in exit_code_label(2).lower()
     assert "log" not in exit_code_label(4).lower()
+
+
+# ---------------------------------------------------------------------------
+# build_command – targeted scenario tests
+# ---------------------------------------------------------------------------
+# The tests below are intentionally explicit about the three categories the
+# user scenario describes: normal operations, edge cases with redundant flags,
+# and missing parameter values.
+
+
+# ── Normal operations ─────────────────────────────────────────────────────
+
+
+def test_build_command_normal_source_and_destination() -> None:
+    """build_command produces the expected three-token base command for valid paths."""
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("C:/Users/backup", "D:/Backups/users", {}, {})
+    assert cmd[0] == "robocopy"
+    assert cmd[1] == "C:/Users/backup"
+    assert cmd[2] == "D:/Backups/users"
+    assert len(cmd) == 3
+
+
+def test_build_command_normal_with_common_flag_set() -> None:
+    """build_command produces a sensible everyday command (mirror + retry settings)."""
+    cmd = build_command(
+        "C:/source",
+        "D:/destination",
+        {"/MIR": True, "/NP": True},
+        {"/R": (True, "3"), "/W": (True, "10")},
+    )
+    assert "/MIR" in cmd
+    assert "/NP" in cmd
+    assert "/R:3" in cmd
+    assert "/W:10" in cmd
+
+
+def test_build_command_normal_preserves_path_order() -> None:
+    """Source always comes before destination in the built command."""
+    with patch("rbcopy.builder.sys.platform", "linux"):
+        cmd = build_command("C:/source", "D:/destination", {}, {})
+    assert cmd.index("C:/source") < cmd.index("D:/destination")
+
+
+# ── Edge cases: redundant flag combinations ──────────────────────────────
+# build_command does NOT validate for redundancy; that is validate_command's
+# responsibility.  These tests confirm that build_command faithfully includes
+# every enabled flag so that callers can decide whether to warn or not.
+
+
+def test_build_command_includes_both_mir_and_e_when_both_enabled() -> None:
+    """/MIR and /E both appear in the command when both ticked; no silent removal."""
+    cmd = build_command("C:/src", "C:/dst", {"/MIR": True, "/E": True}, {})
+    assert "/MIR" in cmd
+    assert "/E" in cmd
+
+
+def test_build_command_includes_both_mir_and_purge_when_both_enabled() -> None:
+    """/MIR and /PURGE both appear when both ticked (/MIR supersedes /PURGE logically,
+    but build_command does not suppress redundant flags)."""
+    cmd = build_command("C:/src", "C:/dst", {"/MIR": True, "/PURGE": True}, {})
+    assert "/MIR" in cmd
+    assert "/PURGE" in cmd
+
+
+def test_build_command_includes_both_move_and_mov_when_both_enabled() -> None:
+    """/MOVE and /MOV both appear when both ticked (redundancy not stripped by build_command)."""
+    cmd = build_command("C:/src", "C:/dst", {"/MOVE": True, "/MOV": True}, {})
+    assert "/MOVE" in cmd
+    assert "/MOV" in cmd
+
+
+def test_validate_command_mir_e_warns_but_is_still_ok(tmp_path: Path) -> None:
+    """/MIR + /E is a warning-level issue, not a fatal error: ok remains True."""
+    src = tmp_path / "src"
+    src.mkdir()
+    result = validate_command(str(src), str(tmp_path / "dst"), {"/MIR": True, "/E": True}, {})
+    assert result.ok is True
+    assert any("redundant" in w.lower() or "/E" in w for w in result.warnings)
+    assert result.errors == []
+
+
+def test_validate_command_mir_e_warning_names_redundant_flag(tmp_path: Path) -> None:
+    """The redundancy warning for /MIR + /E must mention the redundant flag /E by name."""
+    src = tmp_path / "src"
+    src.mkdir()
+    result = validate_command(str(src), str(tmp_path / "dst"), {"/MIR": True, "/E": True}, {})
+    combined = " ".join(result.warnings)
+    assert "/E" in combined
+
+
+# ── Edge cases: missing parameter values ─────────────────────────────────
+
+
+def test_build_command_omits_r_when_enabled_with_blank_value() -> None:
+    """Enabling /R with an empty value must not add any /R token to the command.
+
+    robocopy would silently ignore a bare '/R:' argument; omitting it entirely
+    is the safer and more predictable behaviour.
+    """
+    cmd = build_command("C:/src", "C:/dst", {}, {"/R": (True, "")})
+    assert not any(arg.startswith("/R") for arg in cmd)
+
+
+def test_build_command_omits_w_when_enabled_with_whitespace_only_value() -> None:
+    """A whitespace-only value for /W must be treated the same as an empty value."""
+    cmd = build_command("C:/src", "C:/dst", {}, {"/W": (True, "   ")})
+    assert not any(arg.startswith("/W") for arg in cmd)
+
+
+def test_build_command_includes_r_when_enabled_with_valid_value() -> None:
+    """/R:n must appear when enabled and a numeric value is provided."""
+    cmd = build_command("C:/src", "C:/dst", {}, {"/R": (True, "5")})
+    assert "/R:5" in cmd
+
+
+def test_validate_command_warns_r_enabled_with_blank_value(tmp_path: Path) -> None:
+    """/R enabled with a blank value must produce a warning inside validate_command."""
+    src = tmp_path / "src"
+    src.mkdir()
+    result = validate_command(str(src), str(tmp_path / "dst"), {}, {"/R": (True, "")})
+    assert result.ok is True  # warning, not a fatal error
+    assert any("/R" in w for w in result.warnings)
+
+
+def test_validate_command_warns_w_enabled_with_blank_value(tmp_path: Path) -> None:
+    """/W enabled with a blank value must also produce a warning."""
+    src = tmp_path / "src"
+    src.mkdir()
+    result = validate_command(str(src), str(tmp_path / "dst"), {}, {"/W": (True, "")})
+    assert result.ok is True
+    assert any("/W" in w for w in result.warnings)
+
+
+def test_validate_command_multiple_blank_params_produce_one_warning_each(tmp_path: Path) -> None:
+    """Each enabled param with a blank value generates its own independent warning."""
+    src = tmp_path / "src"
+    src.mkdir()
+    result = validate_command(
+        str(src),
+        str(tmp_path / "dst"),
+        {},
+        {"/R": (True, ""), "/W": (True, ""), "/LEV": (True, "")},
+    )
+    assert result.ok is True
+    r_warnings = [w for w in result.warnings if "/R" in w]
+    w_warnings = [w for w in result.warnings if "/W" in w]
+    lev_warnings = [w for w in result.warnings if "/LEV" in w]
+    assert len(r_warnings) >= 1
+    assert len(w_warnings) >= 1
+    assert len(lev_warnings) >= 1

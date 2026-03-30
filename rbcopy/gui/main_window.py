@@ -13,8 +13,8 @@ from datetime import datetime
 from functools import partial
 from logging import getLogger
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext, ttk
-from typing import Any, Literal
+from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
+from typing import Any, Callable, Dict, Literal
 from rbcopy.notifications import notify_job_complete
 from rbcopy.app_dirs import get_data_dir
 
@@ -31,8 +31,11 @@ from rbcopy.builder import (
     exit_code_label,
     validate_command,
 )
+from rbcopy.bookmarks import BookmarksStore
+from rbcopy.path_history import PathHistoryStore
 from rbcopy.presets import CustomPreset, CustomPresetsStore
 
+from rbcopy.gui.bookmark_manager import _BookmarkManagerWindow
 from rbcopy.gui.job_history import _JobHistoryWindow
 from rbcopy.gui.preferences_dialog import _PreferencesDialog
 from rbcopy.gui.script_builder import _PackPadding, _ScriptExportDialog
@@ -225,6 +228,85 @@ class _ToolTip:
             self._tip_window = None
 
 
+class _PresetDropdownTooltip:
+    """Per-item description tooltips for the Preset combobox dropdown.
+
+    When the dropdown list is open, hovering over an item that has a
+    description shows it in a small tooltip window beside the cursor.
+    Falls back silently if the Tk internal popdown widget cannot be
+    located (e.g. on an unusual Tk build).
+
+    Args:
+        combo:            The combobox to attach to.
+        get_descriptions: Callable that returns a ``{name: description}``
+                          mapping.  Called lazily at hover time so it
+                          always reflects the live preset list.
+    """
+
+    _FONT_SIZE: int = 9
+    _WRAP_LENGTH: int = 320
+
+    def __init__(self, combo: ttk.Combobox, get_descriptions: Callable[[], Dict[str, str]]) -> None:
+        self._combo = combo
+        self._get_descriptions = get_descriptions
+        self._tip_window: tk.Toplevel | None = None
+        combo.bind("<<ComboboxOpened>>", self._on_opened)
+        combo.bind("<<ComboboxClosed>>", lambda _e: self._hide())
+
+    def _on_opened(self, _event: tk.Event[Any]) -> None:
+        """Bind motion on the internal listbox once the dropdown is open."""
+        try:
+            popdown: str = self._combo.tk.eval(f"ttk::combobox::PopdownWindow {self._combo}")
+            # Access the internal Listbox via the Tk widget registry.  The cast
+            # is necessary because tk.nametowidget lives on Misc, not TkappType.
+            lb: tk.Listbox = self._combo.nametowidget(f"{popdown}.f.l")
+            lb.bind("<Motion>", self._on_motion)
+            lb.bind("<Leave>", lambda _e: self._hide())
+        except Exception:
+            logger.debug("_PresetDropdownTooltip: could not bind to popdown listbox", exc_info=True)
+
+    def _on_motion(self, event: tk.Event[Any]) -> None:
+        """Show the description for the list item under the cursor."""
+        lb: tk.Listbox = event.widget
+        idx: int = lb.nearest(event.y)  # type: ignore[no-untyped-call]
+        values: list[str] = list(self._combo["values"])
+        if idx < 0 or idx >= len(values):
+            self._hide()
+            return
+        desc: str = self._get_descriptions().get(values[idx], "")
+        if not desc:
+            self._hide()
+            return
+        self._show(event.x_root, event.y_root, desc)
+
+    def _show(self, x: int, y: int, text: str) -> None:
+        """Display the tooltip window offset from (*x*, *y*)."""
+        # Skip re-creation if the same text is already showing — avoids flicker.
+        if self._tip_window is not None:
+            children = self._tip_window.winfo_children()
+            if children and children[0].cget("text") == text:
+                return
+        self._hide()
+        self._tip_window = tw = tk.Toplevel(self._combo)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x + 16}+{y + 4}")
+        tk.Label(
+            tw,
+            text=text,
+            justify="left",
+            background="#ffffe0",
+            relief="solid",
+            borderwidth=1,
+            font=("TkDefaultFont", self._FONT_SIZE),
+            wraplength=self._WRAP_LENGTH,
+        ).pack(ipadx=4, ipady=2)
+
+    def _hide(self) -> None:
+        if self._tip_window is not None:
+            self._tip_window.destroy()
+            self._tip_window = None
+
+
 class _SavePresetDialog(tk.Toplevel):
     """Modal dialog that collects a preset name and optional description.
 
@@ -337,6 +419,13 @@ class RobocopyGUI(tk.Tk):
         self._presets_store: CustomPresetsStore = CustomPresetsStore()
         self._custom_menu: tk.Menu  # assigned in _build_menu
 
+        # Bookmarks store and menu reference must exist before _build_menu is called.
+        self._bookmarks_store: BookmarksStore = BookmarksStore()
+        self._bookmarks_menu: tk.Menu  # assigned in _build_menu
+
+        # Path history store for source/destination Combobox dropdowns.
+        self._path_history: PathHistoryStore = PathHistoryStore()
+
         # Reference to the currently-running robocopy subprocess, if any.
         # Set by _async_execute on the worker thread; read by _exit on the main thread.
         self._current_proc: asyncio.subprocess.Process | None = None
@@ -360,6 +449,11 @@ class RobocopyGUI(tk.Tk):
         self._preset_var: tk.StringVar = tk.StringVar(value="")
         self._preset_combo: ttk.Combobox | None = None
         self._advanced_visible: bool = False
+
+        # Path vars must be initialised before _build_ui so that _rebuild_bookmarks_menu
+        # (called from _build_menu, which runs first) can reference them safely.
+        self.src_var: tk.StringVar = tk.StringVar()
+        self.dst_var: tk.StringVar = tk.StringVar()
 
         self._build_ui()
         self._apply_preferences()
@@ -414,18 +508,35 @@ class RobocopyGUI(tk.Tk):
         path_frame.columnconfigure(1, weight=1)
 
         ttk.Label(path_frame, text="Source:").grid(row=0, column=0, sticky="w", pady=2)
-        self.src_var = tk.StringVar()
         # Keep a reference so _init_dnd can register the source entry as a drop target.
-        self._src_entry = ttk.Entry(path_frame, textvariable=self.src_var)
+        # ttk.Combobox inherits from ttk.Entry so DnD registration is unchanged.
+        self._src_entry = ttk.Combobox(path_frame, textvariable=self.src_var, values=[])
+        self._src_entry["postcommand"] = self._refresh_path_dropdowns
         self._src_entry.grid(row=0, column=1, sticky="ew", padx=4)
         ttk.Button(path_frame, text="Browse…", command=self._browse_src).grid(row=0, column=2)
+        _src_bm_btn = ttk.Button(
+            path_frame,
+            text="★",
+            width=2,
+            command=lambda: self._bookmark_field("source"),
+        )
+        _src_bm_btn.grid(row=0, column=3, padx=(2, 0))
+        _ToolTip(_src_bm_btn, "Bookmark this source path.\nSaved bookmarks appear in the Bookmarks menu.")
 
         ttk.Label(path_frame, text="Destination:").grid(row=1, column=0, sticky="w", pady=2)
-        self.dst_var = tk.StringVar()
-        self._dst_entry = ttk.Entry(path_frame, textvariable=self.dst_var)
+        self._dst_entry = ttk.Combobox(path_frame, textvariable=self.dst_var, values=[])
+        self._dst_entry["postcommand"] = self._refresh_path_dropdowns
         self._dst_entry.grid(row=1, column=1, sticky="ew", padx=4)
         self._dst_browse_btn = ttk.Button(path_frame, text="Browse…", command=self._browse_dst)
         self._dst_browse_btn.grid(row=1, column=2)
+        _dst_bm_btn = ttk.Button(
+            path_frame,
+            text="★",
+            width=2,
+            command=lambda: self._bookmark_field("destination"),
+        )
+        _dst_bm_btn.grid(row=1, column=3, padx=(2, 0))
+        _ToolTip(_dst_bm_btn, "Bookmark this destination path.\nSaved bookmarks appear in the Bookmarks menu.")
 
         # ── File Filter ───────────────────────────────────────────────
         self._file_filter_cb = ttk.Checkbutton(
@@ -459,6 +570,7 @@ class RobocopyGUI(tk.Tk):
         self._preset_combo = ttk.Combobox(path_frame, textvariable=self._preset_var, state="readonly", width=30)
         self._preset_combo.grid(row=3, column=1, sticky="ew", padx=4, pady=(4, 0))
         self._preset_combo.bind("<<ComboboxSelected>>", self._on_preset_selected)
+        _PresetDropdownTooltip(self._preset_combo, self._get_preset_description_map)
 
         self._param_vars = {}
         self._flag_cbs = {}
@@ -468,9 +580,18 @@ class RobocopyGUI(tk.Tk):
         btn_frame = ttk.Frame(content)
         btn_frame.pack(fill="x", **padding)
 
-        ttk.Button(btn_frame, text="Preview Command", command=self._preview).pack(side="left", padx=(0, 6))
+        _btn_preview = ttk.Button(btn_frame, text="Preview Command", command=self._preview)
+        _btn_preview.pack(side="left", padx=(0, 6))
+        _ToolTip(
+            _btn_preview,
+            "Builds the robocopy command from the current settings and prints it to the output — nothing is copied.",
+        )
         self._btn_dry_run = ttk.Button(btn_frame, text="🔍 Dry Run", command=self._dry_run)
         self._btn_dry_run.pack(side="left", padx=(0, 6))
+        _ToolTip(
+            self._btn_dry_run,
+            "Runs robocopy with /L (list only). Shows which files would be copied without making any changes to disk.",
+        )
         self._btn_run = ttk.Button(btn_frame, text="▶  Run", command=self._run)
         self._btn_run.pack(side="left", padx=(0, 6))
         self._btn_stop = ttk.Button(btn_frame, text="⏹  Stop", command=self._stop, state="disabled")
@@ -478,6 +599,7 @@ class RobocopyGUI(tk.Tk):
         ttk.Button(btn_frame, text="Clear Output", command=self._clear_output).pack(side="right")
         self._btn_advanced = ttk.Button(btn_frame, text="⚙ Advanced ▸", command=self._toggle_advanced)
         self._btn_advanced.pack(side="right", padx=(0, 4))
+        _ToolTip(self._btn_advanced, "Show or hide additional robocopy flags and parameters.")
 
         # ── Output console ────────────────────────────────────────────
         out_frame = ttk.LabelFrame(content, text="Output", padding=4)
@@ -569,6 +691,11 @@ class RobocopyGUI(tk.Tk):
 
         self._props_only_var.trace_add("write", self._on_properties_only_toggle)
         self._rebuild_custom_menu()
+
+        # ── Bookmarks menu ─────────────────────────────────────────────
+        self._bookmarks_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Bookmarks", menu=self._bookmarks_menu)
+        self._rebuild_bookmarks_menu()
 
     def _build_flags(
         self,
@@ -698,6 +825,26 @@ class RobocopyGUI(tk.Tk):
             return
         names = ["Properties Only"] + [p.name for p in self._presets_store.presets]
         self._preset_combo["values"] = names
+
+    def _get_preset_description_map(self) -> Dict[str, str]:
+        """Return a ``{name: description}`` map for all available presets.
+
+        Used by :class:`_PresetDropdownTooltip` to display per-item
+        descriptions while the user hovers inside the Preset dropdown.
+        Custom presets without a description are omitted so the tooltip
+        only appears when there is something useful to say.
+        """
+        descriptions: Dict[str, str] = {
+            "Properties Only": (
+                f"Sets destination to {PROPERTIES_ONLY_DST} and forces "
+                "/L /MIR /NFL /NDL /MT:48 /R:0 /W:0.\n"
+                "Safe: lists file differences without copying anything."
+            ),
+        }
+        for preset in self._presets_store.presets:
+            if preset.description:
+                descriptions[preset.name] = preset.description
+        return descriptions
 
     # ------------------------------------------------------------------
     # Drag-and-drop
@@ -887,6 +1034,11 @@ class RobocopyGUI(tk.Tk):
         if path:
             self.dst_var.set(path)
 
+    def _refresh_path_dropdowns(self) -> None:
+        """Sync both path Combobox value lists from the path history store."""
+        self._src_entry["values"] = self._path_history.get_source_paths()
+        self._dst_entry["values"] = self._path_history.get_destination_paths()
+
     def _save_geometry(self) -> None:
         """Persist the current window size and position to disk.
 
@@ -1039,6 +1191,99 @@ class RobocopyGUI(tk.Tk):
             )
         self._refresh_preset_combo()
 
+    # ------------------------------------------------------------------
+    # Bookmark management
+    # ------------------------------------------------------------------
+
+    def _bookmark_field(self, field: Literal["source", "destination"]) -> None:
+        """Prompt for a name and save the current field path as a bookmark.
+
+        Args:
+            field: Which path field to bookmark — ``"source"`` or ``"destination"``.
+        """
+        raw_path = self.src_var.get() if field == "source" else self.dst_var.get()
+        path = raw_path.strip()
+        name = simpledialog.askstring(
+            "Add Bookmark",
+            f"Enter a name for this {field} bookmark:",
+            parent=self,
+        )
+        if not name or not name.strip():
+            return
+        name_stripped = name.strip()
+        if not path:
+            messagebox.showerror(
+                "Save Failed",
+                f"Cannot bookmark an empty {field} path.",
+                parent=self,
+            )
+            return
+        if not self._bookmarks_store.add_bookmark(name_stripped, path):
+            messagebox.showerror(
+                "Save Failed",
+                f"Bookmark '{name_stripped}' could not be saved to disk.\n"
+                "Check available disk space and file permissions.",
+                parent=self,
+            )
+            return
+        self._rebuild_bookmarks_menu()
+
+    def _rebuild_bookmarks_menu(self) -> None:
+        """Repopulate the Bookmarks menu from the current bookmarks store.
+
+        The menu always starts with two quick-bookmark commands, followed by a
+        separator, then the stored bookmarks (each with a submenu offering
+        "Set as source" / "Set as destination").  A disabled placeholder is
+        shown when no bookmarks exist yet.  The menu is always closed by a
+        separator and a "Manage Bookmarks\u2026" command.
+        """
+        self._bookmarks_menu.delete(0, "end")
+        self._bookmarks_menu.add_command(
+            label="Bookmark source path\u2026",
+            command=lambda: self._bookmark_field("source"),
+        )
+        self._bookmarks_menu.add_command(
+            label="Bookmark destination path\u2026",
+            command=lambda: self._bookmark_field("destination"),
+        )
+        self._bookmarks_menu.add_separator()
+        bookmarks = self._bookmarks_store.get_bookmarks()
+        if not bookmarks:
+            self._bookmarks_menu.add_command(label="(no bookmarks)", state="disabled")
+        else:
+            for bookmark in bookmarks:
+                sub = tk.Menu(self._bookmarks_menu, tearoff=0)
+                self._bookmarks_menu.add_cascade(label=bookmark.name, menu=sub)
+                sub.add_command(
+                    label="Set as source",
+                    command=partial(self.src_var.set, bookmark.path),
+                )
+                sub.add_command(
+                    label="Set as destination",
+                    command=partial(self.dst_var.set, bookmark.path),
+                )
+        self._bookmarks_menu.add_separator()
+        self._bookmarks_menu.add_command(
+            label="Manage Bookmarks\u2026",
+            command=self._open_bookmark_manager,
+        )
+
+    def _open_bookmark_manager(self) -> None:
+        """Open the Bookmark Manager window (Bookmarks → Manage Bookmarks…)."""
+
+        def _on_apply(field: str, path: str) -> None:
+            if field == "source":
+                self.src_var.set(path)
+            else:
+                self.dst_var.set(path)
+
+        _BookmarkManagerWindow(
+            self,
+            store=self._bookmarks_store,
+            on_change=self._rebuild_bookmarks_menu,
+            on_apply=_on_apply,
+        )
+
     def _get_selections(self) -> tuple[dict[str, bool], dict[str, tuple[bool, str]]]:
         """Return the current flag and param selections from the UI widgets."""
         flag_selections = {flag: var.get() for flag, var in self._flag_vars.items()}
@@ -1123,6 +1368,8 @@ class RobocopyGUI(tk.Tk):
 
         self._append_output("Dry run command:\n  " + " ".join(cmd) + "\n")
         logger.info("Launching dry run: %s", " ".join(cmd))
+        self._path_history.add_source(src)
+        self._path_history.add_destination(dst)
         threading.Thread(target=self._execute, args=(cmd,), daemon=True).start()
 
     def _run(self) -> None:
@@ -1164,6 +1411,8 @@ class RobocopyGUI(tk.Tk):
 
         logger.info("Launching robocopy: %s", " ".join(cmd))
         self._append_output("Running: " + " ".join(cmd) + "\n")
+        self._path_history.add_source(src)
+        self._path_history.add_destination(dst)
         threading.Thread(target=self._execute, args=(cmd,), daemon=True).start()
 
     def _export_script(self, cmd: list[str]) -> None:
@@ -1309,6 +1558,7 @@ class RobocopyGUI(tk.Tk):
                         proc.kill()
                     except OSError:
                         logger.debug("kill() failed (process may have already exited)")
+        self._path_history.flush()
         self._save_geometry()
         self.destroy()
 
@@ -1393,4 +1643,17 @@ class RobocopyGUI(tk.Tk):
             parent=self,
             store=self._prefs_store,
             on_saved=self._apply_preferences,
+            on_clear_history=self._clear_path_history,
+            on_clear_bookmarks=self._clear_bookmarks,
         )
+
+    def _clear_path_history(self) -> None:
+        """Erase all path history and refresh the Combobox dropdowns."""
+        self._path_history.clear()
+        self._src_entry["values"] = []
+        self._dst_entry["values"] = []
+
+    def _clear_bookmarks(self) -> None:
+        """Erase all bookmarks and rebuild the Bookmarks menu."""
+        self._bookmarks_store.clear()
+        self._rebuild_bookmarks_menu()

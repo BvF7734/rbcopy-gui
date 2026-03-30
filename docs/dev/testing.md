@@ -11,7 +11,9 @@ tests/
 ├── __init__.py
 ├── conftest.py                  # Shared fixtures and test configuration
 ├── helpers.py                   # Test helper utilities
+├── test___main__.py             # Package __main__ entry point tests
 ├── test_app_dirs.py             # Application directories tests
+├── test_bookmarks.py            # Bookmark model and store tests
 ├── test_builder.py              # Command builder (build_command) tests
 ├── test_cli.py                  # CLI application tests
 ├── test_conf_settings.py        # Settings and configuration tests
@@ -19,6 +21,7 @@ tests/
 ├── test_gui.py                  # GUI component tests
 ├── test_logger.py               # Logging setup tests
 ├── test_notifications.py        # Notification system tests
+├── test_path_history.py         # Path history store tests
 ├── test_preferences.py          # Preferences/preferences store tests
 ├── test_presets.py              # Preset management tests
 ├── test_rbcopy.py               # Package-level tests
@@ -99,7 +102,21 @@ Test fixtures provide reusable test setup and teardown logic. This project uses 
 
 ### Core Fixtures (in conftest.py)
 
-## Testing Async Code
+| Fixture | Scope | Description |
+|---------|-------|-------------|
+| `log_dir` | function | Creates a fresh `rbcopy` logger writing to a temporary directory. Tears down all handlers after each test so tests are fully isolated. Yields the `Path` to the log directory. |
+
+**Example usage**:
+
+```python
+def test_log_file_created(log_dir):
+    """A session log file is written to the log directory."""
+    from rbcopy.logger import setup_logging
+    log_files = list(log_dir.glob("robocopy_job_*.log"))
+    assert len(log_files) == 1
+```
+
+The `tmp_path` fixture (built in to pytest) is also used extensively for creating temporary files and directories in tests that need isolated file-system state. See the [pytest docs](https://docs.pytest.org/en/stable/how-to/tmp_path.html) for details.
 
 This project extensively uses async/await. pytest-asyncio provides support for testing async functions.
 
@@ -167,15 +184,15 @@ async def test_with_mock():
 ### Patching Functions
 
 ```python
-@pytest.mark.asyncio
-@patch('rbcopy.services.cache.get_cached')
-async def test_with_patched_cache(mock_get_cached):
-    """Test with patched cache function."""
-    mock_get_cached.return_value = "cached_value"
+from unittest.mock import patch
 
-    result = await function_using_cache("key")
-    assert result == "cached_value"
-    mock_get_cached.assert_called_with("key")
+@patch("rbcopy.system_check.shutil.which", return_value="/usr/bin/robocopy")
+def test_robocopy_found_on_path(mock_which):
+    """Pre-flight check succeeds when robocopy is on PATH."""
+    from rbcopy.system_check import run_preflight_checks
+    result = run_preflight_checks()
+    assert result.ok
+    mock_which.assert_called_with("robocopy")
 ```
 
 ### Patching Environment Variables
@@ -372,7 +389,7 @@ Tests run automatically on every push and pull request via GitHub Actions. The C
 3. **Performs type checking** with mypy
 4. **Validates linting rules** with ruff
 5. **Checks data formatting** with dapperdata
-6. **Verifies TOML formatting** with toml-sort
+6. **Verifies TOML formatting** with tombi
 
 See the [GitHub Actions documentation](./github.md) for more details on CI configuration.
 

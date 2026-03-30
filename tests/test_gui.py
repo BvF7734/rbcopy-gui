@@ -664,6 +664,165 @@ def test_run_appends_warnings_to_output_before_proceeding() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Simulating a user clicking "Run" – unittest.mock walkthrough
+# ---------------------------------------------------------------------------
+# This section shows the canonical pattern for testing _run() without a live
+# Tk display, without spawning a real robocopy process, and without opening
+# any dialog boxes.
+#
+# The approach uses three layers of mocking:
+#
+#   1. _make_fake_self() – replaces the RobocopyGUI *instance* (self) with a
+#      MagicMock whose relevant attributes are pre-configured.  This sidesteps
+#      the need to create a Tk root window at all.
+#
+#   2. patch("rbcopy.gui.main_window.validate_command") – intercepts the
+#      validation step so it returns a known DryRunResult without touching
+#      the filesystem.
+#
+#   3. patch("rbcopy.gui.main_window.threading.Thread") – intercepts thread
+#      creation so the test can assert *what* would have been launched without
+#      actually blocking on a subprocess.
+#
+# Each test below focuses on one observable side-effect of a click:
+#   • Was a thread started?   (happy path)
+#   • Was a warning shown?    (validation failure)
+#   • Was a thread blocked?   (concurrent protection)
+# ---------------------------------------------------------------------------
+
+
+def test_run_button_click_happy_path() -> None:
+    """Simulates a user clicking ▶ Run with valid paths and no active flags.
+
+    The Click:
+        User fills in Source = "C:/source" and Destination = "D:/dest"
+        then clicks the Run button, which calls RobocopyGUI._run().
+
+    Expected outcome:
+        • validate_command passes (ok=True, no errors).
+        • _confirm_destructive_operation returns True (no destructive flags).
+        • build_command builds ["robocopy", "C:/source", "D:/dest"].
+        • A daemon thread is started targeting _execute with that command.
+        • No warning dialog is shown to the user.
+    """
+    from rbcopy.builder import DryRunResult
+
+    # Step 1 – configure the fake GUI instance with populated form fields.
+    fake_self = _make_fake_self()
+    fake_self.src_var.get.return_value = "C:/source"
+    fake_self.dst_var.get.return_value = "D:/dest"
+    fake_self._get_selections.return_value = ({}, {})
+    fake_self._build_command.return_value = ["robocopy", "C:/source", "D:/dest"]
+
+    # Step 2 – mock validate_command to return a clean result (no filesystem hit).
+    ok_result = DryRunResult(ok=True)
+
+    # Step 3 – mock threading.Thread to capture what would have been launched.
+    with patch("rbcopy.gui.main_window.validate_command", return_value=ok_result):
+        with patch("rbcopy.gui.main_window._confirm_destructive_operation", return_value=True):
+            with patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls:
+                mock_thread = MagicMock()
+                mock_thread_cls.return_value = mock_thread
+
+                # Step 4 – invoke _run() exactly as the button command would.
+                RobocopyGUI._run(fake_self)
+
+    # Step 5 – assert the thread was started with the expected command.
+    mock_thread_cls.assert_called_once_with(
+        target=fake_self._execute,
+        args=(["robocopy", "C:/source", "D:/dest"],),
+        daemon=True,
+    )
+    mock_thread.start.assert_called_once()
+
+
+def test_run_button_click_with_invalid_source() -> None:
+    """Simulates a click after the user left Source blank.
+
+    The Click:
+        Source is "" (empty), Destination is "D:/dest".
+        validate_command returns ok=False because the source is missing.
+
+    Expected outcome:
+        • A warning dialog appears; no background thread is launched.
+    """
+    from rbcopy.builder import DryRunResult
+
+    fake_self = _make_fake_self()
+    fake_self.src_var.get.return_value = ""
+    fake_self.dst_var.get.return_value = "D:/dest"
+    fake_self._get_selections.return_value = ({}, {})
+
+    # Simulate the validation step returning a path error.
+    failed_result = DryRunResult(ok=False, errors=["Source path is required."])
+
+    with patch("rbcopy.gui.main_window.validate_command", return_value=failed_result):
+        with patch("rbcopy.gui.main_window.messagebox.showwarning") as mock_warn:
+            with patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls:
+                RobocopyGUI._run(fake_self)
+
+    # A warning must have been shown to the user.
+    mock_warn.assert_called_once()
+    # No subprocess should have been started.
+    mock_thread_cls.assert_not_called()
+
+
+def test_run_button_click_blocked_when_job_already_running() -> None:
+    """Simulates a second click while a robocopy job is still in progress.
+
+    The Click:
+        User clicks Run while self._current_proc is not None
+        (i.e. a previous job is still executing).
+
+    Expected outcome:
+        • _job_already_running() returns True.
+        • _run() returns immediately; no new thread is created.
+    """
+    fake_self = _make_fake_self()
+    # Simulate an already-running process.
+    fake_self._job_already_running.return_value = True
+
+    with patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls:
+        RobocopyGUI._run(fake_self)
+
+    mock_thread_cls.assert_not_called()
+
+
+def test_run_button_click_with_redundant_flags_proceeds_with_warning() -> None:
+    """Simulates clicking Run when /MIR and /E are both checked (redundant combination).
+
+    The Click:
+        User ticked both /MIR and /E, then clicked Run.
+
+    Expected outcome:
+        • validate_command emits a warning about /E being redundant.
+        • _run() writes the warning to the output panel.
+        • The job still launches because warnings are non-fatal (ok=True).
+    """
+    from rbcopy.builder import DryRunResult
+
+    fake_self = _make_fake_self()
+    fake_self.src_var.get.return_value = "C:/source"
+    fake_self.dst_var.get.return_value = "D:/dest"
+    fake_self._get_selections.return_value = ({"/MIR": True, "/E": True}, {})
+    fake_self._build_command.return_value = ["robocopy", "C:/source", "D:/dest", "/MIR", "/E"]
+
+    warn_result = DryRunResult(ok=True, warnings=["/MIR is selected; /E is redundant"])
+
+    with patch("rbcopy.gui.main_window.validate_command", return_value=warn_result):
+        with patch("rbcopy.gui.main_window._confirm_destructive_operation", return_value=True):
+            with patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls:
+                mock_thread_cls.return_value = MagicMock()
+                RobocopyGUI._run(fake_self)
+
+    # The thread must have been created (job proceeds despite warning).
+    mock_thread_cls.assert_called_once()
+    # The warning must have been surfaced in the output panel.
+    all_output = " ".join(call.args[0] for call in fake_self._append_output.call_args_list)
+    assert "/MIR is selected" in all_output
+
+
+# ---------------------------------------------------------------------------
 # RobocopyGUI._dry_run tests
 # ---------------------------------------------------------------------------
 
@@ -792,9 +951,10 @@ def test_dry_run_starts_background_thread() -> None:
 
     with patch("rbcopy.gui.main_window.validate_command", return_value=ok_result):
         with patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls:
-            mock_thread = MagicMock()
-            mock_thread_cls.return_value = mock_thread
-            RobocopyGUI._dry_run(fake_self)
+            with patch("rbcopy.builder.sys.platform", "linux"):
+                mock_thread = MagicMock()
+                mock_thread_cls.return_value = mock_thread
+                RobocopyGUI._dry_run(fake_self)
 
     mock_thread_cls.assert_called_once_with(
         target=fake_self._execute,
@@ -3823,4 +3983,431 @@ def test_open_preferences_opens_dialog() -> None:
         parent=fake_self,
         store=fake_self._prefs_store,
         on_saved=fake_self._apply_preferences,
+        on_clear_history=fake_self._clear_path_history,
+        on_clear_bookmarks=fake_self._clear_bookmarks,
     )
+
+
+# ---------------------------------------------------------------------------
+# Bookmark manager – RobocopyGUI._open_bookmark_manager
+# ---------------------------------------------------------------------------
+
+
+def test_open_bookmark_manager_method_exists() -> None:
+    """RobocopyGUI must expose a callable _open_bookmark_manager method."""
+    assert callable(RobocopyGUI._open_bookmark_manager)
+
+
+def test_open_bookmark_manager_opens_window() -> None:
+    """_open_bookmark_manager must instantiate _BookmarkManagerWindow."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+
+    with patch("rbcopy.gui.main_window._BookmarkManagerWindow") as mock_cls:
+        RobocopyGUI._open_bookmark_manager(fake)
+
+    mock_cls.assert_called_once()
+    call_kwargs = mock_cls.call_args.kwargs
+    assert call_kwargs["store"] is fake._bookmarks_store
+    assert callable(call_kwargs["on_change"])
+    assert callable(call_kwargs["on_apply"])
+
+
+def test_open_bookmark_manager_on_change_calls_rebuild_menu() -> None:
+    """The on_change callback passed to _BookmarkManagerWindow calls _rebuild_bookmarks_menu."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+
+    with patch("rbcopy.gui.main_window._BookmarkManagerWindow") as mock_cls:
+        RobocopyGUI._open_bookmark_manager(fake)
+
+    on_change = mock_cls.call_args.kwargs["on_change"]
+    on_change()
+    fake._rebuild_bookmarks_menu.assert_called_once()
+
+
+def test_open_bookmark_manager_on_apply_sets_source() -> None:
+    """The on_apply callback sets src_var when field='source'."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+
+    with patch("rbcopy.gui.main_window._BookmarkManagerWindow") as mock_cls:
+        RobocopyGUI._open_bookmark_manager(fake)
+
+    on_apply = mock_cls.call_args.kwargs["on_apply"]
+    on_apply("source", r"C:\my\source")
+    fake.src_var.set.assert_called_once_with(r"C:\my\source")
+
+
+def test_open_bookmark_manager_on_apply_sets_destination() -> None:
+    """The on_apply callback sets dst_var when field='destination'."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+
+    with patch("rbcopy.gui.main_window._BookmarkManagerWindow") as mock_cls:
+        RobocopyGUI._open_bookmark_manager(fake)
+
+    on_apply = mock_cls.call_args.kwargs["on_apply"]
+    on_apply("destination", r"C:\my\dest")
+    fake.dst_var.set.assert_called_once_with(r"C:\my\dest")
+
+
+# ---------------------------------------------------------------------------
+# Bookmark manager – _BookmarkManagerWindow unit tests
+# ---------------------------------------------------------------------------
+
+
+def _make_bookmark_manager_win(store: Any) -> Any:
+    """Return a _BookmarkManagerWindow instance injected with mock widgets."""
+    from rbcopy.gui.bookmark_manager import _BookmarkManagerWindow
+
+    win = _BookmarkManagerWindow.__new__(_BookmarkManagerWindow)
+    win._store = store
+    win._on_change = MagicMock()
+    win._on_apply = MagicMock()
+
+    mock_tree = MagicMock()
+    # Default: nothing selected.
+    mock_tree.selection.return_value = ()
+    mock_tree.get_children.return_value = []
+    win._tree = mock_tree
+    return win
+
+
+def test_bookmark_manager_refresh_shows_placeholder_when_empty(tmp_path: Path) -> None:
+    """_refresh inserts a placeholder row when the store has no bookmarks."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+
+    win._refresh()
+
+    win._tree.insert.assert_called_once()
+    values = win._tree.insert.call_args.kwargs.get(
+        "values", win._tree.insert.call_args.args[-1] if win._tree.insert.call_args.args else ()
+    )
+    assert "(no bookmarks)" in str(values)
+
+
+def test_bookmark_manager_refresh_populates_rows(tmp_path: Path) -> None:
+    """_refresh inserts one row per stored bookmark."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("Alpha", r"C:\alpha")
+    store.add_bookmark("Beta", r"C:\beta")
+
+    win = _make_bookmark_manager_win(store)
+    win._refresh()
+
+    assert win._tree.insert.call_count == 2
+    inserted_values = [call.kwargs.get("values", ()) for call in win._tree.insert.call_args_list]
+    names = [v[0] for v in inserted_values]
+    assert "Alpha" in names
+    assert "Beta" in names
+
+
+def test_bookmark_manager_delete_removes_selected(tmp_path: Path) -> None:
+    """_delete removes the selected bookmark after confirmation."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("ToDelete", r"C:\gone")
+    store.add_bookmark("Keep", r"C:\keep")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ("iid1",)
+    win._tree.set = MagicMock(return_value="ToDelete")
+    win._refresh = MagicMock()
+
+    with patch("rbcopy.gui.bookmark_manager.messagebox.askyesno", return_value=True):
+        win._delete()
+
+    assert store.get_bookmark("ToDelete") is None
+    assert store.get_bookmark("Keep") is not None
+    win._on_change.assert_called_once()
+    win._refresh.assert_called_once()
+
+
+def test_bookmark_manager_delete_aborts_when_cancelled(tmp_path: Path) -> None:
+    """_delete does nothing when the user cancels the confirmation dialog."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("Stay", r"C:\stay")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ("iid1",)
+    win._tree.set = MagicMock(return_value="Stay")
+    win._refresh = MagicMock()
+
+    with patch("rbcopy.gui.bookmark_manager.messagebox.askyesno", return_value=False):
+        win._delete()
+
+    assert store.get_bookmark("Stay") is not None
+    win._on_change.assert_not_called()
+    win._refresh.assert_not_called()
+
+
+def test_bookmark_manager_delete_noop_when_nothing_selected(tmp_path: Path) -> None:
+    """_delete does nothing when no row is selected."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("A", r"C:\a")
+
+    win = _make_bookmark_manager_win(store)
+    # No selection
+    win._tree.selection.return_value = ()
+    win._refresh = MagicMock()
+
+    win._delete()
+
+    assert store.get_bookmark("A") is not None
+    win._on_change.assert_not_called()
+
+
+def test_bookmark_manager_move_up_reorders(tmp_path: Path) -> None:
+    """_move_up shifts the selected bookmark one position towards the top."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("First", r"C:\first")
+    store.add_bookmark("Second", r"C:\second")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.get_children.return_value = ("iid0", "iid1")
+    win._tree.selection.return_value = ("iid1",)
+    win._refresh = MagicMock()
+
+    win._move_up()
+
+    names = [b.name for b in store.get_bookmarks()]
+    assert names == ["Second", "First"]
+    win._on_change.assert_called_once()
+    win._refresh.assert_called_once()
+
+
+def test_bookmark_manager_move_up_noop_at_top(tmp_path: Path) -> None:
+    """_move_up does nothing when the first item is already selected."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("First", r"C:\first")
+    store.add_bookmark("Second", r"C:\second")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.get_children.return_value = ("iid0", "iid1")
+    win._tree.selection.return_value = ("iid0",)
+    win._refresh = MagicMock()
+
+    win._move_up()
+
+    names = [b.name for b in store.get_bookmarks()]
+    assert names == ["First", "Second"]
+    win._on_change.assert_not_called()
+
+
+def test_bookmark_manager_move_down_reorders(tmp_path: Path) -> None:
+    """_move_down shifts the selected bookmark one position towards the bottom."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("First", r"C:\first")
+    store.add_bookmark("Second", r"C:\second")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.get_children.return_value = ("iid0", "iid1")
+    win._tree.selection.return_value = ("iid0",)
+    win._refresh = MagicMock()
+
+    win._move_down()
+
+    names = [b.name for b in store.get_bookmarks()]
+    assert names == ["Second", "First"]
+    win._on_change.assert_called_once()
+    win._refresh.assert_called_once()
+
+
+def test_bookmark_manager_move_down_noop_at_bottom(tmp_path: Path) -> None:
+    """_move_down does nothing when the last item is already selected."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("First", r"C:\first")
+    store.add_bookmark("Second", r"C:\second")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.get_children.return_value = ("iid0", "iid1")
+    win._tree.selection.return_value = ("iid1",)
+    win._refresh = MagicMock()
+
+    win._move_down()
+
+    names = [b.name for b in store.get_bookmarks()]
+    assert names == ["First", "Second"]
+    win._on_change.assert_not_called()
+
+
+def test_bookmark_manager_set_as_source_calls_on_apply(tmp_path: Path) -> None:
+    """_set_as_source calls on_apply with ('source', path)."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("MySrc", r"C:\my\src")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ("iid1",)
+    win._tree.set = MagicMock(return_value="MySrc")
+
+    win._set_as_source()
+
+    win._on_apply.assert_called_once_with("source", r"C:\my\src")
+
+
+def test_bookmark_manager_set_as_destination_calls_on_apply(tmp_path: Path) -> None:
+    """_set_as_destination calls on_apply with ('destination', path)."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("MyDst", r"C:\my\dst")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ("iid1",)
+    win._tree.set = MagicMock(return_value="MyDst")
+
+    win._set_as_destination()
+
+    win._on_apply.assert_called_once_with("destination", r"C:\my\dst")
+
+
+def test_bookmark_manager_set_as_source_noop_when_no_selection(tmp_path: Path) -> None:
+    """_set_as_source does nothing when no row is selected."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ()
+
+    win._set_as_source()
+
+    win._on_apply.assert_not_called()
+
+
+def test_bookmark_manager_add_calls_store_and_notifies(tmp_path: Path) -> None:
+    """_add calls add_bookmark and notifies on_change when the dialog is confirmed."""
+    from rbcopy.bookmarks import BookmarksStore
+    from rbcopy.gui.bookmark_manager import _EditBookmarkDialog
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+    win._refresh = MagicMock()
+    win._select_by_name = MagicMock()
+
+    mock_dlg = MagicMock(spec=_EditBookmarkDialog)
+    mock_dlg.name = "NewBM"
+    mock_dlg.path = r"C:\new\path"
+
+    with patch("rbcopy.gui.bookmark_manager._EditBookmarkDialog", return_value=mock_dlg):
+        win._add()
+
+    assert store.get_bookmark("NewBM") is not None
+    assert store.get_bookmark("NewBM").path == r"C:\new\path"
+    win._on_change.assert_called_once()
+    win._refresh.assert_called_once()
+
+
+def test_bookmark_manager_add_cancelled_when_name_is_none(tmp_path: Path) -> None:
+    """_add does nothing when the dialog is cancelled (name is None)."""
+    from rbcopy.bookmarks import BookmarksStore
+    from rbcopy.gui.bookmark_manager import _EditBookmarkDialog
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+    win._refresh = MagicMock()
+
+    mock_dlg = MagicMock(spec=_EditBookmarkDialog)
+    mock_dlg.name = None
+
+    with patch("rbcopy.gui.bookmark_manager._EditBookmarkDialog", return_value=mock_dlg):
+        win._add()
+
+    assert store.get_bookmarks() == []
+    win._on_change.assert_not_called()
+    win._refresh.assert_not_called()
+
+
+def test_bookmark_manager_edit_updates_name_and_path(tmp_path: Path) -> None:
+    """_edit replaces the selected bookmark's name and path in place."""
+    from rbcopy.bookmarks import BookmarksStore
+    from rbcopy.gui.bookmark_manager import _EditBookmarkDialog
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("OldName", r"C:\old")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ("iid1",)
+    win._tree.set = MagicMock(return_value="OldName")
+    win._refresh = MagicMock()
+    win._select_by_name = MagicMock()
+
+    mock_dlg = MagicMock(spec=_EditBookmarkDialog)
+    mock_dlg.name = "NewName"
+    mock_dlg.path = r"C:\new"
+
+    with patch("rbcopy.gui.bookmark_manager._EditBookmarkDialog", return_value=mock_dlg):
+        win._edit()
+
+    assert store.get_bookmark("OldName") is None
+    assert store.get_bookmark("NewName") is not None
+    assert store.get_bookmark("NewName").path == r"C:\new"
+    win._on_change.assert_called_once()
+    win._refresh.assert_called_once()
+
+
+def test_bookmark_manager_edit_cancelled_does_nothing(tmp_path: Path) -> None:
+    """_edit makes no changes when the dialog is cancelled."""
+    from rbcopy.bookmarks import BookmarksStore
+    from rbcopy.gui.bookmark_manager import _EditBookmarkDialog
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("Stay", r"C:\stay")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ("iid1",)
+    win._tree.set = MagicMock(return_value="Stay")
+    win._refresh = MagicMock()
+
+    mock_dlg = MagicMock(spec=_EditBookmarkDialog)
+    mock_dlg.name = None
+
+    with patch("rbcopy.gui.bookmark_manager._EditBookmarkDialog", return_value=mock_dlg):
+        win._edit()
+
+    assert store.get_bookmark("Stay") is not None
+    win._on_change.assert_not_called()
+    win._refresh.assert_not_called()
+
+
+def test_rebuild_bookmarks_menu_includes_manage_bookmarks() -> None:
+    """_rebuild_bookmarks_menu must always add a 'Manage Bookmarks…' entry."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+    fake._bookmarks_store.get_bookmarks.return_value = []
+    fake._bookmarks_menu = MagicMock()
+
+    RobocopyGUI._rebuild_bookmarks_menu(fake)
+
+    labels = [call.kwargs.get("label", "") for call in fake._bookmarks_menu.add_command.call_args_list]
+    assert any("Manage Bookmarks" in label for label in labels)

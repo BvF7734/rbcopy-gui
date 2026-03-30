@@ -124,6 +124,21 @@ def test_run_preflight_checks_admin_false_on_windows() -> None:
     assert any("Administrator" in e for e in result.errors)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only code path")
+def test_run_preflight_checks_admin_attribute_error_fallback() -> None:
+    """IsUserAnAdmin raising AttributeError is handled; process is treated as non-admin."""
+    import ctypes
+
+    with patch("rbcopy.system_check.shutil.which", return_value="C:\\Windows\\System32\\robocopy.exe"):
+        # Simulate a stripped Windows environment where IsUserAnAdmin is unavailable
+        # by making the call to it raise AttributeError.
+        with patch.object(ctypes.windll.shell32, "IsUserAnAdmin", side_effect=AttributeError()):  # type: ignore[attr-defined]
+            result = run_preflight_checks()
+
+    assert result.ok is False
+    assert any("Administrator" in e for e in result.errors)
+
+
 # ---------------------------------------------------------------------------
 # status_report round-trip
 # ---------------------------------------------------------------------------
