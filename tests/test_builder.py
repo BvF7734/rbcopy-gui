@@ -625,13 +625,17 @@ def test_apply_extended_path_prefix_relative_path_unchanged() -> None:
     assert result == "relative\\path\\file"
 
 
-def test_apply_extended_path_prefix_applied_in_build_command() -> None:
-    """build_command applies the extended-length prefix to src and dst on Windows."""
+def test_apply_extended_path_prefix_not_applied_in_build_command() -> None:
+    """build_command does NOT apply the extended-length prefix to paths.
+
+    Robocopy handles long paths natively; the \\?\\ prefix is for direct
+    Win32 API calls and causes robocopy to mis-parse path arguments.
+    """
     with patch("rbcopy.builder.sys.platform", "win32"):
         cmd = build_command("C:/source", "C:/destination", {}, {})
     assert cmd[0] == "robocopy"
-    assert cmd[1] == "\\\\?\\C:\\source"
-    assert cmd[2] == "\\\\?\\C:\\destination"
+    assert cmd[1] == "C:/source"
+    assert cmd[2] == "C:/destination"
 
 
 # ---------------------------------------------------------------------------

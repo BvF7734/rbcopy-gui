@@ -354,12 +354,11 @@ def build_command(
     if not dst:
         raise ValueError("Destination path is required.")
 
-    # Prepend the Win32 extended-length path prefix so that robocopy is not
-    # constrained by the historic 260-character MAX_PATH limit.  This is a
-    # no-op on non-Windows platforms and on relative paths.
-    src = _apply_extended_path_prefix(src)
-    dst = _apply_extended_path_prefix(dst)
-
+    # Robocopy handles long paths (> 260 characters) natively via its own
+    # internal Win32 extended-path support.  The \\?\ prefix is reserved for
+    # direct Win32 API calls; passing it on the command line would cause
+    # robocopy to mis-parse the paths (producing errors like \\?\d\path
+    # instead of D:\path).
     cmd: list[str] = ["robocopy", src, dst]
 
     # Positional file patterns come immediately after dst and before all flags.
