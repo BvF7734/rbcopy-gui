@@ -10,6 +10,7 @@ successful run.
 from __future__ import annotations
 
 import json
+import sys
 from logging import getLogger
 from pathlib import Path
 from typing import List
@@ -30,8 +31,9 @@ class PathHistoryStore:
     """Manages recently-used source and destination path lists.
 
     Paths are persisted to a JSON file so they survive application restarts.
-    The store loads its data on construction; all mutation methods update
-    the in-memory list and immediately write it to disk.
+    The store loads its data on construction; mutation methods update the
+    in-memory lists and mark the store as dirty.  Call :meth:`flush` to write
+    any pending changes to disk (methods such as :meth:`clear` also flush).
 
     Args:
         path: Path to the JSON file used for persistence.  Defaults to
@@ -57,16 +59,15 @@ class PathHistoryStore:
         prepended so it appears at index 0 (the top of the dropdown).  The list
         is then trimmed to at most :data:`MAX_PATHS` entries.
 
-        The path is normalised via :class:`pathlib.Path` before storage so that
-        equivalent paths using different separators (e.g. ``C:/test`` and
-        ``C:\\test`` on Windows) are treated as a single entry.
+        The path is normalised via :func:`_normalize_path_separators` before
+        storage so that equivalent paths using different separators (e.g.
+        ``C:/test`` and ``C:\\test`` on Windows) are treated as a single entry
+        while preserving the native path form displayed to users.
 
         Args:
             path: The source path string to record.
         """
-        # Normalise to POSIX separators so that C:\test and C:/test are
-        # treated as the same entry regardless of how the caller formatted them.
-        normalized: str = Path(path).as_posix()
+        normalized: str = _normalize_path_separators(path)
         self._source = _deduplicate_prepend(self._source, normalized)
         self._dirty = True
 
@@ -77,16 +78,15 @@ class PathHistoryStore:
         prepended so it appears at index 0 (the top of the dropdown).  The list
         is then trimmed to at most :data:`MAX_PATHS` entries.
 
-        The path is normalised via :class:`pathlib.Path` before storage so that
-        equivalent paths using different separators (e.g. ``C:/test`` and
-        ``C:\\test`` on Windows) are treated as a single entry.
+        The path is normalised via :func:`_normalize_path_separators` before
+        storage so that equivalent paths using different separators (e.g.
+        ``C:/test`` and ``C:\\test`` on Windows) are treated as a single entry
+        while preserving the native path form displayed to users.
 
         Args:
             path: The destination path string to record.
         """
-        # Normalise to POSIX separators so that C:\test and C:/test are
-        # treated as the same entry regardless of how the caller formatted them.
-        normalized: str = Path(path).as_posix()
+        normalized: str = _normalize_path_separators(path)
         self._destination = _deduplicate_prepend(self._destination, normalized)
         self._dirty = True
 
@@ -105,17 +105,25 @@ class PathHistoryStore:
         safe checkpoint) to guarantee that paths added via :meth:`add_source`
         and :meth:`add_destination` are durable.  No-op when the store is
         already in sync with disk.
+
+        If the write fails the store remains dirty so the next call to
+        :meth:`flush` can retry.
         """
         if self._dirty:
-            self._persist()
-            self._dirty = False
+            try:
+                self._persist()
+            except OSError:
+                logger.exception("Failed to flush path history to %s", self._path)
+            else:
+                self._dirty = False
 
     def clear(self) -> None:
         """Erase all source and destination history entries and persist the change."""
         self._source = []
         self._destination = []
-        self._dirty = False
-        self._persist()
+        # Mark dirty first so a failed persist can be retried via flush().
+        self._dirty = True
+        self.flush()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -125,16 +133,24 @@ class PathHistoryStore:
         """Load the history from disk.
 
         Silently initialises to empty lists on any error (missing file,
-        corrupt JSON, unexpected data types) so a bad history file never
-        prevents the application from starting.
+        corrupt JSON, non-list values, unexpected data types) so a bad history
+        file never prevents the application from starting.
         """
         if not self._path.exists():
             return
         try:
             raw = self._path.read_text(encoding="utf-8")
             data = json.loads(raw)
-            self._source = [str(p) for p in data.get(_KEY_SOURCE, [])][:MAX_PATHS]
-            self._destination = [str(p) for p in data.get(_KEY_DESTINATION, [])][:MAX_PATHS]
+            source_raw = data.get(_KEY_SOURCE, [])
+            if isinstance(source_raw, list):
+                self._source = [str(p) for p in source_raw][:MAX_PATHS]
+            else:
+                self._source = []
+            destination_raw = data.get(_KEY_DESTINATION, [])
+            if isinstance(destination_raw, list):
+                self._destination = [str(p) for p in destination_raw][:MAX_PATHS]
+            else:
+                self._destination = []
         except (json.JSONDecodeError, ValueError, OSError, TypeError):
             logger.debug(
                 "Failed to load path history from %s; initialising empty lists",
@@ -147,18 +163,35 @@ class PathHistoryStore:
     def _persist(self) -> None:
         """Serialise both lists and write them to the JSON file.
 
-        Failures are logged and silently swallowed so a disk error never
-        disrupts the main UI.
+        Raises:
+            OSError: If the file cannot be written.  Callers are responsible
+                for handling this and deciding whether to retry.
         """
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            data: dict[str, List[str]] = {
-                _KEY_SOURCE: self._source,
-                _KEY_DESTINATION: self._destination,
-            }
-            self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except OSError:
-            logger.exception("Failed to save path history to %s", self._path)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        data: dict[str, List[str]] = {
+            _KEY_SOURCE: self._source,
+            _KEY_DESTINATION: self._destination,
+        }
+        self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def _normalize_path_separators(path: str) -> str:
+    """Normalize path separators for platform-consistent deduplication.
+
+    On Windows, forward slashes are converted to backslashes so that
+    ``C:/test`` and ``C:\\test`` are treated as the same entry while
+    preserving the native Windows path form displayed to users.
+    On non-Windows platforms the path is returned unchanged.
+
+    Args:
+        path: The path string to normalize.
+
+    Returns:
+        The path with separators normalized for the current platform.
+    """
+    if sys.platform == "win32":
+        return path.replace("/", "\\")
+    return path
 
 
 def _deduplicate_prepend(paths: List[str], new_path: str) -> List[str]:

@@ -1201,7 +1201,8 @@ class RobocopyGUI(tk.Tk):
         Args:
             field: Which path field to bookmark — ``"source"`` or ``"destination"``.
         """
-        path = self.src_var.get() if field == "source" else self.dst_var.get()
+        raw_path = self.src_var.get() if field == "source" else self.dst_var.get()
+        path = raw_path.strip()
         name = simpledialog.askstring(
             "Add Bookmark",
             f"Enter a name for this {field} bookmark:",
@@ -1209,10 +1210,18 @@ class RobocopyGUI(tk.Tk):
         )
         if not name or not name.strip():
             return
-        if not self._bookmarks_store.add_bookmark(name.strip(), path):
+        name_stripped = name.strip()
+        if not path:
             messagebox.showerror(
                 "Save Failed",
-                f"Bookmark '{name.strip()}' could not be saved to disk.\n"
+                f"Cannot bookmark an empty {field} path.",
+                parent=self,
+            )
+            return
+        if not self._bookmarks_store.add_bookmark(name_stripped, path):
+            messagebox.showerror(
+                "Save Failed",
+                f"Bookmark '{name_stripped}' could not be saved to disk.\n"
                 "Check available disk space and file permissions.",
                 parent=self,
             )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -53,9 +54,6 @@ def test_deduplicate_prepend_does_not_mutate_input() -> None:
 
 def test_deduplicate_prepend_deduplicates_before_trim() -> None:
     """When the path already exists, deduplication prevents exceeding MAX_PATHS."""
-    # List is already at max capacity; 'last' is already present, so no net addition.
-    paths = [f"/path/{i}" for i in range(MAX_PATHS)]
-    paths.append("/already/present")  # list has MAX_PATHS + 1 but we'll move this one
     # Start with exactly MAX_PATHS entries where the last is the target
     paths = [f"/path/{i}" for i in range(MAX_PATHS - 1)] + ["/already/present"]
     result = _deduplicate_prepend(paths, "/already/present")
@@ -295,16 +293,14 @@ def test_corrupt_json_file_recovers_to_empty(tmp_path: Path) -> None:
 def test_wrong_type_for_source_key_recovers_gracefully(tmp_path: Path) -> None:
     """An unexpected type for the 'source' value initialises that list to empty."""
     history_path = tmp_path / "history.json"
-    # 'source' is a string instead of a list — should be skipped cleanly.
+    # 'source' is a string instead of a list — must be rejected cleanly.
     history_path.write_text(
         json.dumps({"source": "not-a-list", "destination": ["/dst"]}),
         encoding="utf-8",
     )
     store = PathHistoryStore(path=history_path)
-    # The store falls back to empty lists when 'source' cannot be iterated as expected.
-    # (str is iterable so individual characters would be str-converted; this tests
-    # that any partial load does not cause an exception.)
-    assert isinstance(store.get_source_paths(), list)
+    # Non-list values are rejected; source history falls back to empty.
+    assert store.get_source_paths() == []
     assert store.get_destination_paths() == ["/dst"]
 
 
@@ -412,7 +408,7 @@ def test_load_caps_source_to_max_paths(tmp_path: Path) -> None:
     history_path = tmp_path / "history.json"
     oversized_source = [f"/src/{i}" for i in range(MAX_PATHS + 10)]
     history_path.write_text(
-        __import__("json").dumps({"source": oversized_source, "destination": []}),
+        json.dumps({"source": oversized_source, "destination": []}),
         encoding="utf-8",
     )
 
@@ -425,7 +421,7 @@ def test_load_caps_destination_to_max_paths(tmp_path: Path) -> None:
     history_path = tmp_path / "history.json"
     oversized_dst = [f"/dst/{i}" for i in range(MAX_PATHS + 5)]
     history_path.write_text(
-        __import__("json").dumps({"source": [], "destination": oversized_dst}),
+        json.dumps({"source": [], "destination": oversized_dst}),
         encoding="utf-8",
     )
 
@@ -434,14 +430,12 @@ def test_load_caps_destination_to_max_paths(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# PathHistoryStore – flush disk error is swallowed
+# PathHistoryStore – flush disk error keeps store dirty for retry
 # ---------------------------------------------------------------------------
 
 
 def test_flush_oserror_is_silently_ignored(tmp_path: Path) -> None:
     """An OSError during flush() is logged and swallowed; the store stays usable."""
-    from unittest.mock import patch
-
     history_path = tmp_path / "history.json"
     store = PathHistoryStore(path=history_path)
     store.add_source("/any/path")
@@ -452,3 +446,21 @@ def test_flush_oserror_is_silently_ignored(tmp_path: Path) -> None:
 
     # In-memory state is still intact
     assert store.get_source_paths() == ["/any/path"]
+
+
+def test_flush_oserror_keeps_store_dirty_for_retry(tmp_path: Path) -> None:
+    """After a failed flush(), the store stays dirty so a later flush() can retry."""
+    history_path = tmp_path / "history.json"
+    store = PathHistoryStore(path=history_path)
+    store.add_source("/retry/path")
+
+    with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+        store.flush()
+
+    # The file must not have been written yet.
+    assert not history_path.exists()
+
+    # A second flush() with the disk available should now persist the data.
+    store.flush()
+    data = json.loads(history_path.read_text(encoding="utf-8"))
+    assert "/retry/path" in data["source"]

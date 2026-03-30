@@ -298,7 +298,7 @@ def _apply_extended_path_prefix(path: str) -> str:
 
     # Avoid double-applying the prefix if it is already present.
     if normalised.startswith("\\\\?\\"):
-        return path
+        return normalised
 
     # Identify Windows absolute paths without relying on pathlib.is_absolute(),
     # which returns different results on Linux vs Windows for the same string.
