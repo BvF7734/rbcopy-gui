@@ -248,9 +248,17 @@ def test_sync_log_rotation_failure_is_non_fatal(log_dir: Path) -> None:
 def test_cli_module_main_guard_invokes_app() -> None:
     """Running rbcopy/cli.py directly as __main__ should call the Typer app."""
     import runpy
+    import sys
     from unittest.mock import MagicMock
 
     mock_app_instance = MagicMock()
-    with patch("typer.Typer", return_value=mock_app_instance):
-        runpy.run_module("rbcopy.cli", run_name="__main__")
+    # Remove the already-imported module so runpy doesn't emit a RuntimeWarning
+    # about finding it in sys.modules before executing it as __main__.
+    saved = sys.modules.pop("rbcopy.cli", None)
+    try:
+        with patch("typer.Typer", return_value=mock_app_instance):
+            runpy.run_module("rbcopy.cli", run_name="__main__")
+    finally:
+        if saved is not None:
+            sys.modules["rbcopy.cli"] = saved
     mock_app_instance.assert_called_once()

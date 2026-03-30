@@ -59,16 +59,15 @@ class PathHistoryStore:
         prepended so it appears at index 0 (the top of the dropdown).  The list
         is then trimmed to at most :data:`MAX_PATHS` entries.
 
-        The path is normalised via :func:`_normalize_path_separators` before
-        storage so that equivalent paths using different separators (e.g.
-        ``C:/test`` and ``C:\\test`` on Windows) are treated as a single entry
-        while preserving the native path form displayed to users.
+        Deduplication uses :func:`_normalize_path_separators` for comparison so
+        that equivalent paths with different separators (e.g. ``C:/test`` and
+        ``C:\\test`` on Windows) are treated as a single entry.  The original
+        path string is stored so the value displayed to users is unchanged.
 
         Args:
             path: The source path string to record.
         """
-        normalized: str = _normalize_path_separators(path)
-        self._source = _deduplicate_prepend(self._source, normalized)
+        self._source = _deduplicate_prepend(self._source, path)
         self._dirty = True
 
     def add_destination(self, path: str) -> None:
@@ -78,16 +77,15 @@ class PathHistoryStore:
         prepended so it appears at index 0 (the top of the dropdown).  The list
         is then trimmed to at most :data:`MAX_PATHS` entries.
 
-        The path is normalised via :func:`_normalize_path_separators` before
-        storage so that equivalent paths using different separators (e.g.
-        ``C:/test`` and ``C:\\test`` on Windows) are treated as a single entry
-        while preserving the native path form displayed to users.
+        Deduplication uses :func:`_normalize_path_separators` for comparison so
+        that equivalent paths with different separators (e.g. ``C:/test`` and
+        ``C:\\test`` on Windows) are treated as a single entry.  The original
+        path string is stored so the value displayed to users is unchanged.
 
         Args:
             path: The destination path string to record.
         """
-        normalized: str = _normalize_path_separators(path)
-        self._destination = _deduplicate_prepend(self._destination, normalized)
+        self._destination = _deduplicate_prepend(self._destination, path)
         self._dirty = True
 
     def get_source_paths(self) -> List[str]:
@@ -197,6 +195,12 @@ def _normalize_path_separators(path: str) -> str:
 def _deduplicate_prepend(paths: List[str], new_path: str) -> List[str]:
     """Remove *new_path* from *paths* if present, prepend it, and trim to MAX_PATHS.
 
+    Comparison is performed on the normalised form of each path (see
+    :func:`_normalize_path_separators`) so that paths differing only in
+    separator character (e.g. ``C:/test`` vs ``C:\\test`` on Windows) are
+    treated as duplicates.  The original *new_path* string is inserted, not the
+    normalised form.
+
     Args:
         paths:    Current list of paths (not mutated).
         new_path: The path to move to the front.
@@ -204,5 +208,6 @@ def _deduplicate_prepend(paths: List[str], new_path: str) -> List[str]:
     Returns:
         A new list with *new_path* at index 0 and at most :data:`MAX_PATHS` entries.
     """
-    deduped = [p for p in paths if p != new_path]
+    normalized_new = _normalize_path_separators(new_path)
+    deduped = [p for p in paths if _normalize_path_separators(p) != normalized_new]
     return ([new_path] + deduped)[:MAX_PATHS]
