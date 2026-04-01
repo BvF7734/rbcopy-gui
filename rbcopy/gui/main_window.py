@@ -1081,6 +1081,66 @@ class RobocopyGUI(tk.Tk):
         if path:
             self.dst_var.set(path)
 
+    def _import_patterns_from_file(
+        self,
+        title: str,
+        log_template: str,
+        on_success: Callable[[list[str]], None],
+    ) -> None:
+        """Open a .txt file, parse patterns from it, then call *on_success*.
+
+        Lines that are blank or begin with ``#`` are ignored.  Patterns
+        containing spaces are automatically quoted so that robocopy treats
+        them as single tokens rather than separate arguments.  *on_success*
+        is invoked only when at least one usable pattern was found.
+
+        Args:
+            title:        Title string for the file-chooser dialog.
+            log_template: A ``%``-format string accepting ``(count, path)``
+                          for the info log message emitted on success.
+            on_success:   Callback invoked with the list of parsed patterns.
+        """
+        path_str = filedialog.askopenfilename(
+            title=title,
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            parent=self,
+        )
+        if not path_str:
+            return
+
+        try:
+            raw = Path(path_str).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            logger.exception("Could not read patterns file: %s", path_str)
+            messagebox.showerror(
+                "Import Failed",
+                f"Could not read:\n{path_str}",
+                parent=self,
+            )
+            return
+
+        patterns: list[str] = []
+        for line in raw.splitlines():
+            p = line.strip()
+            if not p or p.startswith("#"):
+                continue
+            # Quote patterns that contain spaces so robocopy treats them as a
+            # single argument.  Skip quoting if already wrapped in double quotes.
+            if " " in p and not (p.startswith('"') and p.endswith('"')):
+                p = f'"{p}"'
+            patterns.append(p)
+
+        if not patterns:
+            messagebox.showinfo(
+                "No Patterns Found",
+                "The selected file contained no usable patterns.\nBlank lines and lines starting with '#' are ignored.",
+                parent=self,
+            )
+            return
+
+        on_success(patterns)
+        logger.info(log_template, len(patterns), path_str)
+
     def _import_exclusions_from_file(
         self,
         flag: str,
@@ -1102,42 +1162,19 @@ class RobocopyGUI(tk.Tk):
             value_var:   The StringVar bound to the flag's entry field.
             entry:       The ttk.Entry widget whose state must mirror the checkbox.
         """
-        path_str = filedialog.askopenfilename(
+
+        def _apply(patterns: list[str]) -> None:
+            existing = value_var.get().strip()
+            combined = (existing + " " + " ".join(patterns)).strip() if existing else " ".join(patterns)
+            value_var.set(combined)
+            enabled_var.set(True)
+            entry.config(state="normal")
+
+        self._import_patterns_from_file(
             title=f"Import exclusions for {flag}",
-            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-            parent=self,
+            log_template=f"Imported %d exclusion pattern(s) for {flag} from %s",
+            on_success=_apply,
         )
-        if not path_str:
-            return
-
-        try:
-            raw = Path(path_str).read_text(encoding="utf-8")
-        except OSError:
-            logger.exception("Could not read exclusions file: %s", path_str)
-            messagebox.showerror(
-                "Import Failed",
-                f"Could not read:\n{path_str}",
-                parent=self,
-            )
-            return
-
-        patterns: list[str] = [
-            line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")
-        ]
-        if not patterns:
-            messagebox.showinfo(
-                "No Patterns Found",
-                "The selected file contained no usable patterns.\nBlank lines and lines starting with '#' are ignored.",
-                parent=self,
-            )
-            return
-
-        existing = value_var.get().strip()
-        combined = (existing + " " + " ".join(patterns)).strip() if existing else " ".join(patterns)
-        value_var.set(combined)
-        enabled_var.set(True)
-        entry.config(state="normal")
-        logger.info("Imported %d exclusion pattern(s) for %s from %s", len(patterns), flag, path_str)
 
     def _import_file_filter_from_file(self) -> None:
         """Import include-file patterns from a .txt file into the file filter field.
@@ -1147,42 +1184,19 @@ class RobocopyGUI(tk.Tk):
         appends the resulting tokens to any text already in the file filter
         entry.  The file filter checkbox and entry are enabled automatically.
         """
-        path_str = filedialog.askopenfilename(
+
+        def _apply(patterns: list[str]) -> None:
+            existing = self._file_filter_var.get().strip()
+            combined = (existing + " " + " ".join(patterns)).strip() if existing else " ".join(patterns)
+            self._file_filter_var.set(combined)
+            self._file_filter_enabled_var.set(True)
+            self._file_filter_entry.config(state="normal")
+
+        self._import_patterns_from_file(
             title="Import file filter patterns",
-            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-            parent=self,
+            log_template="Imported %d file filter pattern(s) from %s",
+            on_success=_apply,
         )
-        if not path_str:
-            return
-
-        try:
-            raw = Path(path_str).read_text(encoding="utf-8")
-        except OSError:
-            logger.exception("Could not read file filter patterns file: %s", path_str)
-            messagebox.showerror(
-                "Import Failed",
-                f"Could not read:\n{path_str}",
-                parent=self,
-            )
-            return
-
-        patterns: list[str] = [
-            line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")
-        ]
-        if not patterns:
-            messagebox.showinfo(
-                "No Patterns Found",
-                "The selected file contained no usable patterns.\nBlank lines and lines starting with '#' are ignored.",
-                parent=self,
-            )
-            return
-
-        existing = self._file_filter_var.get().strip()
-        combined = (existing + " " + " ".join(patterns)).strip() if existing else " ".join(patterns)
-        self._file_filter_var.set(combined)
-        self._file_filter_enabled_var.set(True)
-        self._file_filter_entry.config(state="normal")
-        logger.info("Imported %d file filter pattern(s) from %s", len(patterns), path_str)
 
     def _refresh_path_dropdowns(self) -> None:
         """Sync both path Combobox value lists from the path history store."""
@@ -1627,7 +1641,7 @@ class RobocopyGUI(tk.Tk):
             await proc.wait()
             assert proc.returncode is not None
             exit_code = proc.returncode
-            self._append_output(f"\n[Process exited with code {exit_code}]\n")
+            self._append_output(f"\n[Process exited with code {exit_code}]\n", block=True)
             if exit_code == 0:
                 logger.info("robocopy completed successfully (exit code 0)")
             else:
@@ -1648,10 +1662,10 @@ class RobocopyGUI(tk.Tk):
             if "/NJS" in cmd:
                 logger.info("Job ended: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         except FileNotFoundError:
-            self._append_output("[Error] 'robocopy' was not found. This application requires Windows.\n")
+            self._append_output("[Error] 'robocopy' was not found. This application requires Windows.\n", block=True)
             logger.error("robocopy executable not found")
         except Exception as exc:  # noqa: BLE001
-            self._append_output(f"[Error] {exc}\n")
+            self._append_output(f"[Error] {exc}\n", block=True)
             logger.exception("Unexpected error while running robocopy")
         finally:
             self._current_proc = None
@@ -1736,19 +1750,24 @@ class RobocopyGUI(tk.Tk):
         except OSError:
             logger.debug("terminate() failed; process may have already exited")
 
-    def _append_output(self, text: str) -> None:
+    def _append_output(self, text: str, block: bool = False) -> None:
         """Enqueue *text* for display in the output console.
 
         Thread-safe: may be called from the Tkinter main thread or from the
-        background asyncio thread.  Uses ``put_nowait`` so the caller is never
-        blocked; if the queue is full the line is silently dropped and
+        background asyncio thread.  Uses ``put_nowait`` by default so the caller
+        is never blocked; if the queue is full the line is silently dropped and
         ``_dropped_lines`` is incremented so that ``_poll_output`` can surface
-        a notice to the user.
+        a notice to the user.  Set *block* to ``True`` for critical messages
+        (e.g. exit codes, fatal errors) to guarantee delivery regardless of
+        queue pressure.
         """
-        try:
-            self._output_queue.put_nowait(text)
-        except queue.Full:
-            self._dropped_lines += 1
+        if block:
+            self._output_queue.put(text)
+        else:
+            try:
+                self._output_queue.put_nowait(text)
+            except queue.Full:
+                self._dropped_lines += 1
 
     def _poll_output(self) -> None:
         """Drain the output queue and write any pending text to the console.

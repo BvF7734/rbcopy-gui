@@ -53,11 +53,13 @@ def test_preflight_result_status_report_mixed() -> None:
 
 
 @pytest.mark.parametrize("platform", ["linux", "darwin"])
-def test_run_preflight_checks_non_windows_exits(platform: str) -> None:
-    """On non-Windows platforms the app must hard-fail with SystemExit."""
+def test_run_preflight_checks_non_windows_fails(platform: str) -> None:
+    """On non-Windows platforms the function must return a failed PreflightResult."""
     with patch("rbcopy.system_check.sys.platform", platform):
-        with pytest.raises(SystemExit):
-            run_preflight_checks()
+        result = run_preflight_checks()
+
+    assert result.ok is False
+    assert any("Windows" in e for e in result.errors)
 
 
 # ---------------------------------------------------------------------------
