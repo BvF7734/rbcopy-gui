@@ -55,6 +55,13 @@ _GEOMETRY_PATH: Path = get_data_dir() / "geometry.json"
 # robocopy emits a burst of output, which would otherwise freeze the GUI.
 _MAX_LINES_PER_POLL: int = 100
 
+# Upper bound on the number of items buffered between the background
+# asyncio thread and the Tkinter main thread.  Without a cap, robocopy
+# jobs that emit thousands of lines per second (e.g. many small files on
+# NVMe) would grow the queue without limit, ballooning memory and keeping
+# the UI printing output long after the process has already exited.
+_OUTPUT_QUEUE_MAXSIZE: int = 5000
+
 # Flags that can delete files from the destination with no recovery path.
 _DESTRUCTIVE_FLAGS: frozenset[str] = frozenset({"/MIR", "/PURGE"})
 
@@ -391,7 +398,16 @@ class RobocopyGUI(tk.Tk):
         style.theme_use("clam")
 
         # Thread-safe queue for subprocess output; polled by the main thread.
-        self._output_queue: queue.Queue[str] = queue.Queue()
+        # Bounded to _OUTPUT_QUEUE_MAXSIZE so that fast robocopy jobs cannot
+        # exhaust memory.  Lines that arrive when the queue is full are counted
+        # and a summary notice is injected by _poll_output once space frees up.
+        self._output_queue: queue.Queue[str] = queue.Queue(maxsize=_OUTPUT_QUEUE_MAXSIZE)
+
+        # Count of output lines dropped because the queue was full.  Written
+        # by the asyncio/background thread; read and reset by the main thread
+        # inside _poll_output.  Relies on CPython's GIL for safe unsynchronised
+        # access (reads/writes are atomic at the bytecode level).
+        self._dropped_lines: int = 0
 
         # Guard to prevent re-entrant _refresh_widget_states calls while
         # _on_properties_only_toggle is batch-updating multiple variables.
@@ -1463,14 +1479,21 @@ class RobocopyGUI(tk.Tk):
             assert proc.stdout is not None
             async for line_bytes in proc.stdout:
                 line = line_bytes.decode(locale.getpreferredencoding(False), errors="replace")
-                self._output_queue.put(line)
+                # Use non-blocking put_nowait so the asyncio event loop is
+                # never stalled waiting for queue headroom.  Lines dropped
+                # when the buffer is full are counted; _poll_output will
+                # surface a notice to the user once space becomes available.
+                try:
+                    self._output_queue.put_nowait(line)
+                except queue.Full:
+                    self._dropped_lines += 1
                 # Mirror every output line to the logger so the log file
                 # captures the full robocopy job header and job summary.
                 logger.debug("%s", line.rstrip("\n"))
             await proc.wait()
             assert proc.returncode is not None
             exit_code = proc.returncode
-            self._output_queue.put(f"\n[Process exited with code {exit_code}]\n")
+            self._append_output(f"\n[Process exited with code {exit_code}]\n")
             if exit_code == 0:
                 logger.info("robocopy completed successfully (exit code 0)")
             else:
@@ -1484,17 +1507,17 @@ class RobocopyGUI(tk.Tk):
             if _log_path is not None:
                 _summary = parse_summary_from_log(_log_path)
                 if _summary is not None:
-                    self._output_queue.put(_summary.format_card())
+                    self._append_output(_summary.format_card())
 
             # When /NJS suppresses robocopy's job summary (which contains the
             # end time), record the end timestamp manually.
             if "/NJS" in cmd:
                 logger.info("Job ended: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         except FileNotFoundError:
-            self._output_queue.put("[Error] 'robocopy' was not found. This application requires Windows.\n")
+            self._append_output("[Error] 'robocopy' was not found. This application requires Windows.\n")
             logger.error("robocopy executable not found")
         except Exception as exc:  # noqa: BLE001
-            self._output_queue.put(f"[Error] {exc}\n")
+            self._append_output(f"[Error] {exc}\n")
             logger.exception("Unexpected error while running robocopy")
         finally:
             self._current_proc = None
@@ -1580,8 +1603,18 @@ class RobocopyGUI(tk.Tk):
             logger.debug("terminate() failed; process may have already exited")
 
     def _append_output(self, text: str) -> None:
-        """Enqueue text so the main-thread poll loop can write it safely."""
-        self._output_queue.put(text)
+        """Enqueue *text* for display in the output console.
+
+        Thread-safe: may be called from the Tkinter main thread or from the
+        background asyncio thread.  Uses ``put_nowait`` so the caller is never
+        blocked; if the queue is full the line is silently dropped and
+        ``_dropped_lines`` is incremented so that ``_poll_output`` can surface
+        a notice to the user.
+        """
+        try:
+            self._output_queue.put_nowait(text)
+        except queue.Full:
+            self._dropped_lines += 1
 
     def _poll_output(self) -> None:
         """Drain the output queue and write any pending text to the console.
@@ -1604,6 +1637,17 @@ class RobocopyGUI(tk.Tk):
             pass
         if lines:
             self._write_output("".join(lines))
+        # After draining, inject a notice if any lines were dropped since the
+        # last poll cycle.  Done after draining to maximise queue headroom.
+        # Read then reset so a concurrent increment loses at most one count.
+        dropped = self._dropped_lines
+        if dropped > 0:
+            self._dropped_lines = 0
+            try:
+                self._output_queue.put_nowait(f"[{dropped} line(s) dropped — output buffer full]\n")
+            except queue.Full:
+                # Queue still full; restore the counter so we retry next cycle.
+                self._dropped_lines += dropped
         # Reschedule; 100 ms keeps the UI responsive without burning CPU.
         self.after(100, self._poll_output)
 

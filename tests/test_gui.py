@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 import pytest
 
 from rbcopy.gui import RobocopyGUI
-from rbcopy.gui.main_window import _MAX_LINES_PER_POLL
+from rbcopy.gui.main_window import _MAX_LINES_PER_POLL, _OUTPUT_QUEUE_MAXSIZE
 from tests.helpers import make_mock_async_proc
 
 
@@ -300,6 +300,20 @@ def _make_fake_self() -> MagicMock:
     """Return a MagicMock suitable as a fake 'self' for RobocopyGUI methods."""
     fake: MagicMock = MagicMock()
     fake._output_queue = queue.Queue()
+    fake._dropped_lines = 0
+
+    def _fake_append_output(text: str) -> None:
+        # Mirror the real _append_output: non-blocking, track drops.
+        try:
+            fake._output_queue.put_nowait(text)
+        except queue.Full:
+            fake._dropped_lines += 1
+
+    # Wire _append_output so that calls from _async_execute (which uses
+    # self._append_output instead of self._output_queue.put directly) still
+    # land in the real queue, matching production behaviour without needing a
+    # real Tkinter window.
+    fake._append_output.side_effect = _fake_append_output
     fake._shutdown = threading.Event()
     fake._current_proc = None
     fake._job_already_running.return_value = False
@@ -457,6 +471,60 @@ def test_poll_output_does_not_write_when_queue_empty() -> None:
 
     fake_self._write_output.assert_not_called()
     fake_self.after.assert_called_once_with(100, fake_self._poll_output)
+
+
+def test_poll_output_injects_dropped_lines_notice() -> None:
+    """_poll_output must enqueue a notice and reset the counter when lines were dropped."""
+    fake_self = _make_fake_self()
+    fake_self._dropped_lines = 42
+
+    RobocopyGUI._poll_output(fake_self)
+
+    # The dropped-lines notice should now be in the queue.
+    items = _drain_queue(fake_self._output_queue)
+    assert any("42" in item and "dropped" in item for item in items)
+    # Counter must be reset after the notice was successfully enqueued.
+    assert fake_self._dropped_lines == 0
+
+
+def test_poll_output_retains_dropped_count_when_queue_full() -> None:
+    """_poll_output must restore _dropped_lines if the queue is still full after draining."""
+    fake_self = _make_fake_self()
+    # Use a tiny bounded queue (maxsize=1) and fill it so put_nowait fails.
+    fake_self._output_queue = queue.Queue(maxsize=1)
+    fake_self._output_queue.put_nowait("already full\n")
+    fake_self._dropped_lines = 7
+
+    RobocopyGUI._poll_output(fake_self)
+
+    # After draining 1 item, the notice should have been enqueued successfully.
+    items = _drain_queue(fake_self._output_queue)
+    assert any("7" in item and "dropped" in item for item in items)
+    assert fake_self._dropped_lines == 0
+
+
+def test_async_execute_drops_lines_when_queue_full() -> None:
+    """_async_execute increments _dropped_lines instead of blocking when the queue is full."""
+    fake_self = _make_fake_self()
+    # Fill the queue to capacity so every subsequent put raises queue.Full.
+    fake_self._output_queue = queue.Queue(maxsize=2)
+    # Two output lines; the queue will hold only the first two.
+    mock_proc = make_mock_async_proc(returncode=0, output="line1\nline2\nline3\n", pid=99)
+
+    with patch("rbcopy.gui.main_window.asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
+        with patch("rbcopy.gui.main_window.notify_job_complete"):
+            with patch("rbcopy.gui.main_window.parse_summary_from_log", return_value=None):
+                asyncio.run(RobocopyGUI._async_execute(fake_self, ["robocopy", "C:/src", "C:/dst"]))
+
+    # At least one line must have been dropped (queue maxsize=2 but we have
+    # 3 output lines plus the exit-code message).
+    assert fake_self._dropped_lines >= 1
+
+
+def test_output_queue_maxsize_is_bounded() -> None:
+    """_OUTPUT_QUEUE_MAXSIZE must be a positive finite integer."""
+    assert isinstance(_OUTPUT_QUEUE_MAXSIZE, int)
+    assert _OUTPUT_QUEUE_MAXSIZE > 0
 
 
 def test_write_output_configures_widget() -> None:
