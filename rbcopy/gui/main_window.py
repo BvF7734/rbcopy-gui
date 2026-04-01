@@ -404,10 +404,14 @@ class RobocopyGUI(tk.Tk):
         self._output_queue: queue.Queue[str] = queue.Queue(maxsize=_OUTPUT_QUEUE_MAXSIZE)
 
         # Monotonic count of output lines dropped because the queue was full.
-        # Only ever incremented by the background asyncio thread; never reset.
-        # The main thread tracks how many drops have already been reported via
-        # _last_reported_drops and computes the delta, so no lock is needed and
-        # increments can never be lost due to a read-then-reset race.
+        # May be incremented by any thread (background asyncio or main thread)
+        # that calls _append_output when the queue is full.  Access must be
+        # guarded by _dropped_lines_lock to prevent lost updates under
+        # concurrent writes.  The main thread tracks how many drops have
+        # already been reported via _last_reported_drops and computes the
+        # delta; neither counter is ever reset, so no read-then-reset race
+        # is possible.
+        self._dropped_lines_lock: threading.Lock = threading.Lock()
         self._dropped_lines: int = 0
         self._last_reported_drops: int = 0
 
@@ -1757,17 +1761,46 @@ class RobocopyGUI(tk.Tk):
         background asyncio thread.  Uses ``put_nowait`` by default so the caller
         is never blocked; if the queue is full the line is silently dropped and
         ``_dropped_lines`` is incremented so that ``_poll_output`` can surface
-        a notice to the user.  Set *block* to ``True`` for critical messages
-        (e.g. exit codes, fatal errors) to guarantee delivery regardless of
-        queue pressure.
+        a notice to the user.
+
+        When *block* is ``True`` (for critical messages such as exit codes or
+        fatal errors), the method makes a best-effort to guarantee delivery by
+        evicting one older queued line when the queue is full, but it never
+        blocks indefinitely so that background threads can always exit cleanly
+        during shutdown.
         """
         if block:
-            self._output_queue.put(text)
+            # Skip enqueue entirely if we're shutting down to avoid stalling
+            # the background thread after the window is destroyed.
+            if self._shutdown.is_set():
+                return
+            try:
+                # Fast path: queue has space.
+                self._output_queue.put_nowait(text)
+            except queue.Full:
+                # Evict one older, lower-priority line to make room for this
+                # critical message, then retry once.  The evicted-line counter
+                # is only incremented when get_nowait() actually removed a line
+                # (i.e. it succeeded).  If it raises queue.Empty, the queue was
+                # concurrently drained and no line was evicted, so no increment.
+                try:
+                    self._output_queue.get_nowait()
+                    with self._dropped_lines_lock:
+                        self._dropped_lines += 1
+                except queue.Empty:
+                    pass
+                try:
+                    self._output_queue.put_nowait(text)
+                except queue.Full:
+                    # Still no room; drop rather than risk deadlocking.
+                    with self._dropped_lines_lock:
+                        self._dropped_lines += 1
         else:
             try:
                 self._output_queue.put_nowait(text)
             except queue.Full:
-                self._dropped_lines += 1
+                with self._dropped_lines_lock:
+                    self._dropped_lines += 1
 
     def _poll_output(self) -> None:
         """Drain the output queue and write any pending text to the console.
@@ -1792,11 +1825,10 @@ class RobocopyGUI(tk.Tk):
             self._write_output("".join(lines))
         # After draining, inject a notice if any lines were dropped since the
         # last poll cycle.  Done after draining to maximise queue headroom.
-        # _dropped_lines is a monotonic counter incremented only by the producer
-        # thread; _last_reported_drops is the watermark of how many drops have
-        # already been surfaced to the user.  Computing the delta means no
-        # increment can ever be lost due to a read-then-reset race.
-        current_drops = self._dropped_lines
+        # _dropped_lines is protected by _dropped_lines_lock; we take a
+        # snapshot here so the comparison and watermark update are consistent.
+        with self._dropped_lines_lock:
+            current_drops = self._dropped_lines
         if current_drops > self._last_reported_drops:
             delta = current_drops - self._last_reported_drops
             try:

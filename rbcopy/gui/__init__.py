@@ -59,8 +59,8 @@ def launch() -> None:
         import ctypes  # noqa: PLC0415
 
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
-    except Exception:
-        logger.debug("SetProcessDpiAwareness not available; skipping High-DPI setup")
+    except (AttributeError, OSError):
+        logger.debug("SetProcessDpiAwareness not available; skipping High-DPI setup", exc_info=True)
 
     app = RobocopyGUI()
 

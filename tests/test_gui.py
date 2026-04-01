@@ -302,13 +302,37 @@ def _make_fake_self() -> MagicMock:
     fake._output_queue = queue.Queue()
     fake._dropped_lines = 0
     fake._last_reported_drops = 0
+    fake._dropped_lines_lock = threading.Lock()
 
     def _fake_append_output(text: str, block: bool = False) -> None:
-        # Mirror the real _append_output: non-blocking, track drops.
-        try:
-            fake._output_queue.put_nowait(text)
-        except queue.Full:
-            fake._dropped_lines += 1
+        # Mirror the real _append_output: for block=True use the eviction
+        # strategy; for block=False use put_nowait and track drops.
+        # The evicted-line counter is only incremented when get_nowait()
+        # actually removed a line; a queue.Empty exception means the queue
+        # was concurrently drained so no line was evicted.
+        if block:
+            if fake._shutdown.is_set():
+                return
+            try:
+                fake._output_queue.put_nowait(text)
+            except queue.Full:
+                try:
+                    fake._output_queue.get_nowait()
+                    with fake._dropped_lines_lock:
+                        fake._dropped_lines += 1
+                except queue.Empty:
+                    pass
+                try:
+                    fake._output_queue.put_nowait(text)
+                except queue.Full:
+                    with fake._dropped_lines_lock:
+                        fake._dropped_lines += 1
+        else:
+            try:
+                fake._output_queue.put_nowait(text)
+            except queue.Full:
+                with fake._dropped_lines_lock:
+                    fake._dropped_lines += 1
 
     # Wire _append_output so that calls from _async_execute (which uses
     # self._append_output instead of self._output_queue.put directly) still
@@ -434,6 +458,35 @@ def test_append_output_enqueues_text() -> None:
     fake_self = _make_fake_self()
     RobocopyGUI._append_output(fake_self, "hello")
     assert fake_self._output_queue.get_nowait() == "hello"
+
+
+def test_append_output_block_true_delivers_when_queue_full() -> None:
+    """_append_output(block=True) must deliver the message even when the queue is full.
+
+    The implementation evicts one older line to make room rather than blocking
+    indefinitely, so the critical message always reaches the consumer.
+    """
+    fake_self = _make_fake_self()
+    fake_self._output_queue = queue.Queue(maxsize=2)
+    fake_self._output_queue.put_nowait("old1\n")
+    fake_self._output_queue.put_nowait("old2\n")
+
+    RobocopyGUI._append_output(fake_self, "CRITICAL\n", block=True)
+
+    items = _drain_queue(fake_self._output_queue)
+    assert "CRITICAL\n" in items
+    # One older line must have been evicted and counted as dropped.
+    assert fake_self._dropped_lines >= 1
+
+
+def test_append_output_block_true_skips_when_shutdown() -> None:
+    """_append_output(block=True) must not enqueue anything when shutdown is set."""
+    fake_self = _make_fake_self()
+    fake_self._shutdown.set()
+
+    RobocopyGUI._append_output(fake_self, "should be ignored\n", block=True)
+
+    assert fake_self._output_queue.empty()
 
 
 def test_poll_output_drains_queue_and_calls_write() -> None:
