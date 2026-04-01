@@ -60,7 +60,7 @@ strict_optional = true
 warn_return_any = true
 warn_unused_ignores = true
 
-[tool.pytest]
+[tool.pytest.ini_options]
 asyncio_default_test_loop_scope = "function"
 asyncio_mode = "strict"
 
@@ -79,7 +79,7 @@ exclude = ["tests*", "docs*"]
 
 [tool.setuptools_scm]
 fallback_version = "0.0.0-dev"
-version_file = "rbcopy/_version.py"
+write_to = "rbcopy/_version.py"
 
 [tool.uv]
 exclude-newer = "2026-03-25T00:00:00Z"

@@ -403,11 +403,13 @@ class RobocopyGUI(tk.Tk):
         # and a summary notice is injected by _poll_output once space frees up.
         self._output_queue: queue.Queue[str] = queue.Queue(maxsize=_OUTPUT_QUEUE_MAXSIZE)
 
-        # Count of output lines dropped because the queue was full.  Written
-        # by the asyncio/background thread; read and reset by the main thread
-        # inside _poll_output.  Relies on CPython's GIL for safe unsynchronised
-        # access (reads/writes are atomic at the bytecode level).
+        # Monotonic count of output lines dropped because the queue was full.
+        # Only ever incremented by the background asyncio thread; never reset.
+        # The main thread tracks how many drops have already been reported via
+        # _last_reported_drops and computes the delta, so no lock is needed and
+        # increments can never be lost due to a read-then-reset race.
         self._dropped_lines: int = 0
+        self._last_reported_drops: int = 0
 
         # Guard to prevent re-entrant _refresh_widget_states calls while
         # _on_properties_only_toggle is batch-updating multiple variables.
@@ -1771,15 +1773,22 @@ class RobocopyGUI(tk.Tk):
             self._write_output("".join(lines))
         # After draining, inject a notice if any lines were dropped since the
         # last poll cycle.  Done after draining to maximise queue headroom.
-        # Read then reset so a concurrent increment loses at most one count.
-        dropped = self._dropped_lines
-        if dropped > 0:
-            self._dropped_lines = 0
+        # _dropped_lines is a monotonic counter incremented only by the producer
+        # thread; _last_reported_drops is the watermark of how many drops have
+        # already been surfaced to the user.  Computing the delta means no
+        # increment can ever be lost due to a read-then-reset race.
+        current_drops = self._dropped_lines
+        if current_drops > self._last_reported_drops:
+            delta = current_drops - self._last_reported_drops
             try:
-                self._output_queue.put_nowait(f"[{dropped} line(s) dropped — output buffer full]\n")
+                self._output_queue.put_nowait(f"[{delta} line(s) dropped — output buffer full]\n")
             except queue.Full:
-                # Queue still full; restore the counter so we retry next cycle.
-                self._dropped_lines += dropped
+                # Queue still full; leave _last_reported_drops unchanged so we
+                # retry reporting the same unreported drops on the next cycle.
+                pass
+            else:
+                # Only advance the watermark once the notice has been queued.
+                self._last_reported_drops = current_drops
         # Reschedule; 100 ms keeps the UI responsive without burning CPU.
         self.after(100, self._poll_output)
 
