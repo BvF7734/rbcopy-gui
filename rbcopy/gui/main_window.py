@@ -1622,8 +1622,17 @@ class RobocopyGUI(tk.Tk):
             if "/NJH" in cmd:
                 logger.info("Job started: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
+            # Force /NP (No Progress) when running inside the GUI regardless of
+            # what the user built into their script.  Without it, robocopy emits
+            # a live percentage counter using \r, which asyncio's line-buffered
+            # reader accumulates into a single massive string before the final
+            # \n, causing visual corruption and UI lag in ScrolledText.
+            exec_cmd = list(cmd)
+            if "/NP" not in exec_cmd:
+                exec_cmd.append("/NP")
+
             proc = await asyncio.create_subprocess_exec(
-                *cmd,
+                *exec_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )

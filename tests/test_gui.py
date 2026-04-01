@@ -448,6 +448,42 @@ def test_async_execute_disables_and_reenables_buttons() -> None:
     assert "normal" in states_scheduled
 
 
+def test_async_execute_injects_np_flag_when_missing() -> None:
+    """/NP is appended to the subprocess command when not already present."""
+    fake_self = _make_fake_self()
+    mock_proc = make_mock_async_proc(returncode=0, output="", pid=99)
+    captured_args: list[tuple] = []
+
+    async def _fake_exec(*args, **kwargs):
+        captured_args.append(args)
+        return mock_proc
+
+    with patch("rbcopy.gui.main_window.asyncio.create_subprocess_exec", new=_fake_exec):
+        with patch("rbcopy.gui.main_window.notify_job_complete"):
+            asyncio.run(RobocopyGUI._async_execute(fake_self, ["robocopy", "C:/src", "C:/dst"]))
+
+    assert len(captured_args) == 1
+    assert "/NP" in captured_args[0]
+
+
+def test_async_execute_does_not_duplicate_np_flag() -> None:
+    """/NP is not added a second time when it is already present in the command."""
+    fake_self = _make_fake_self()
+    mock_proc = make_mock_async_proc(returncode=0, output="", pid=99)
+    captured_args: list[tuple] = []
+
+    async def _fake_exec(*args, **kwargs):
+        captured_args.append(args)
+        return mock_proc
+
+    with patch("rbcopy.gui.main_window.asyncio.create_subprocess_exec", new=_fake_exec):
+        with patch("rbcopy.gui.main_window.notify_job_complete"):
+            asyncio.run(RobocopyGUI._async_execute(fake_self, ["robocopy", "C:/src", "C:/dst", "/NP"]))
+
+    assert len(captured_args) == 1
+    assert captured_args[0].count("/NP") == 1
+
+
 # ---------------------------------------------------------------------------
 # RobocopyGUI output helper tests
 # ---------------------------------------------------------------------------
