@@ -257,7 +257,7 @@ def test_store_no_extra_persist_when_no_new_bundled(tmp_path: Path) -> None:
 
     # All bundled names already present → no merge → no persist call.
     with patch("rbcopy.presets._load_bundled_presets", return_value=[existing]):
-        with patch.object(Path, "write_text") as mock_write:
+        with patch.object(Path, "write_bytes") as mock_write:
             CustomPresetsStore(path=presets_path)
 
     mock_write.assert_not_called()
@@ -268,7 +268,7 @@ def test_save_preset_rolls_back_in_memory_on_disk_failure(tmp_path: Path) -> Non
     store = CustomPresetsStore(path=tmp_path / "presets.json")
     store.save_preset(CustomPreset(name="existing"))
 
-    with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+    with patch.object(Path, "write_bytes", side_effect=OSError("disk full")):
         result = store.save_preset(CustomPreset(name="new_preset"))
 
     assert result is False
@@ -283,7 +283,7 @@ def test_save_preset_rollback_preserves_original_on_replace_failure(tmp_path: Pa
     store = CustomPresetsStore(path=tmp_path / "presets.json")
     store.save_preset(CustomPreset(name="my_preset", source="/original"))
 
-    with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+    with patch.object(Path, "write_bytes", side_effect=OSError("disk full")):
         result = store.save_preset(CustomPreset(name="my_preset", source="/replacement"))
 
     assert result is False
@@ -299,7 +299,7 @@ def test_save_preset_in_memory_consistent_with_disk_after_failure(tmp_path: Path
     store = CustomPresetsStore(path=presets_path)
     store.save_preset(CustomPreset(name="good_preset"))
 
-    with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+    with patch.object(Path, "write_bytes", side_effect=OSError("disk full")):
         store.save_preset(CustomPreset(name="failed_preset"))
 
     # Reload from disk and compare.
@@ -439,7 +439,7 @@ def test_store_logs_on_write_failure(tmp_path: Path) -> None:
     """_persist logs an exception and does not raise when write fails."""
     with patch("rbcopy.presets._load_bundled_presets", return_value=[]):
         store = CustomPresetsStore(path=tmp_path / "presets.json")
-    with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+    with patch.object(Path, "write_bytes", side_effect=OSError("disk full")):
         # Should not raise; must return False to signal failure.
         result = store.save_preset(CustomPreset(name="oops"))
     assert result is False
@@ -695,7 +695,7 @@ def test_store_no_persist_when_bundled_empty_and_user_file_exists(tmp_path: Path
     presets_path.write_text(json.dumps([existing.model_dump()]), encoding="utf-8")
 
     with patch("rbcopy.presets._load_bundled_presets", return_value=[]):
-        with patch.object(Path, "write_text") as mock_write:
+        with patch.object(Path, "write_bytes") as mock_write:
             CustomPresetsStore(path=presets_path)
 
     mock_write.assert_not_called()

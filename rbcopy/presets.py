@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from rbcopy.app_dirs import get_data_dir
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError, field_validator
 
 logger = getLogger(__name__)
 
@@ -130,6 +130,10 @@ def _load_bundled_presets() -> List[CustomPreset]:
     except (FileNotFoundError, json.JSONDecodeError, ValueError, OSError, ValidationError):
         logger.debug("Failed to load bundled presets", exc_info=True)
         return []
+
+
+# Module-level adapter so the type inspection cost is paid once at import time.
+_PRESETS_ADAPTER: TypeAdapter[List[CustomPreset]] = TypeAdapter(List[CustomPreset])
 
 
 class CustomPresetsStore:
@@ -274,8 +278,7 @@ class CustomPresetsStore:
         """
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            data = [p.model_dump() for p in self._presets]
-            self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            self._path.write_bytes(_PRESETS_ADAPTER.dump_json(self._presets, indent=2))
             return True
         except OSError:
             logger.exception("Failed to save custom presets to %s", self._path)

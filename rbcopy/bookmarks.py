@@ -15,7 +15,7 @@ from logging import getLogger
 from pathlib import Path
 from typing import List
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
 from rbcopy.app_dirs import get_data_dir
 
@@ -51,6 +51,10 @@ class Bookmark(BaseModel):
         if not v.strip():
             raise ValueError("name must not be empty or whitespace-only")
         return v
+
+
+# Module-level adapter so the type inspection cost is paid once at import time.
+_BOOKMARKS_ADAPTER: TypeAdapter[List[Bookmark]] = TypeAdapter(List[Bookmark])
 
 
 class BookmarksStore:
@@ -190,10 +194,7 @@ class BookmarksStore:
         """
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(
-                json.dumps([b.model_dump() for b in self._bookmarks], indent=2),
-                encoding="utf-8",
-            )
+            self._path.write_bytes(_BOOKMARKS_ADAPTER.dump_json(self._bookmarks, indent=2))
             return True
         except OSError:
             logger.exception("Failed to persist bookmarks to %s", self._path)

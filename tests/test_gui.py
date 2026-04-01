@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 import pytest
 
 from rbcopy.gui import RobocopyGUI
-from rbcopy.gui.main_window import _MAX_LINES_PER_POLL
+from rbcopy.gui.main_window import _MAX_LINES_PER_POLL, _OUTPUT_QUEUE_MAXSIZE
 from tests.helpers import make_mock_async_proc
 
 
@@ -300,6 +300,51 @@ def _make_fake_self() -> MagicMock:
     """Return a MagicMock suitable as a fake 'self' for RobocopyGUI methods."""
     fake: MagicMock = MagicMock()
     fake._output_queue = queue.Queue()
+    fake._dropped_lines = 0
+    fake._last_reported_drops = 0
+    fake._dropped_lines_lock = threading.Lock()
+
+    def _fake_append_output(text: str, block: bool = False) -> None:
+        # Mirror the real _append_output: for block=True use the eviction
+        # strategy; for block=False use put_nowait and track drops.
+        # The evicted-line counter is only incremented when get_nowait()
+        # actually removed a line; a queue.Empty exception means the queue
+        # was concurrently drained so no line was evicted.
+        if block:
+            if fake._shutdown.is_set():
+                return
+            try:
+                fake._output_queue.put_nowait(text)
+            except queue.Full:
+                try:
+                    fake._output_queue.get_nowait()
+                    with fake._dropped_lines_lock:
+                        fake._dropped_lines += 1
+                except queue.Empty:
+                    pass
+                try:
+                    fake._output_queue.put_nowait(text)
+                except queue.Full:
+                    with fake._dropped_lines_lock:
+                        fake._dropped_lines += 1
+        else:
+            try:
+                fake._output_queue.put_nowait(text)
+            except queue.Full:
+                with fake._dropped_lines_lock:
+                    fake._dropped_lines += 1
+
+    # Wire _append_output so that calls from _async_execute (which uses
+    # self._append_output instead of self._output_queue.put directly) still
+    # land in the real queue, matching production behaviour without needing a
+    # real Tkinter window.
+    fake._append_output.side_effect = _fake_append_output
+    # Wire _import_patterns_from_file so that calls from the higher-level import
+    # helpers (_import_exclusions_from_file, _import_file_filter_from_file) still
+    # reach the real implementation without a live Tkinter window.
+    fake._import_patterns_from_file.side_effect = lambda *a, **kw: RobocopyGUI._import_patterns_from_file(
+        fake, *a, **kw
+    )
     fake._shutdown = threading.Event()
     fake._current_proc = None
     fake._job_already_running.return_value = False
@@ -415,6 +460,35 @@ def test_append_output_enqueues_text() -> None:
     assert fake_self._output_queue.get_nowait() == "hello"
 
 
+def test_append_output_block_true_delivers_when_queue_full() -> None:
+    """_append_output(block=True) must deliver the message even when the queue is full.
+
+    The implementation evicts one older line to make room rather than blocking
+    indefinitely, so the critical message always reaches the consumer.
+    """
+    fake_self = _make_fake_self()
+    fake_self._output_queue = queue.Queue(maxsize=2)
+    fake_self._output_queue.put_nowait("old1\n")
+    fake_self._output_queue.put_nowait("old2\n")
+
+    RobocopyGUI._append_output(fake_self, "CRITICAL\n", block=True)
+
+    items = _drain_queue(fake_self._output_queue)
+    assert "CRITICAL\n" in items
+    # One older line must have been evicted and counted as dropped.
+    assert fake_self._dropped_lines >= 1
+
+
+def test_append_output_block_true_skips_when_shutdown() -> None:
+    """_append_output(block=True) must not enqueue anything when shutdown is set."""
+    fake_self = _make_fake_self()
+    fake_self._shutdown.set()
+
+    RobocopyGUI._append_output(fake_self, "should be ignored\n", block=True)
+
+    assert fake_self._output_queue.empty()
+
+
 def test_poll_output_drains_queue_and_calls_write() -> None:
     """_poll_output drains the queue, writes all items in one batched call, and reschedules."""
     fake_self = _make_fake_self()
@@ -457,6 +531,61 @@ def test_poll_output_does_not_write_when_queue_empty() -> None:
 
     fake_self._write_output.assert_not_called()
     fake_self.after.assert_called_once_with(100, fake_self._poll_output)
+
+
+def test_poll_output_injects_dropped_lines_notice() -> None:
+    """_poll_output must enqueue a notice and advance the watermark when lines were dropped."""
+    fake_self = _make_fake_self()
+    fake_self._dropped_lines = 42
+
+    RobocopyGUI._poll_output(fake_self)
+
+    # The dropped-lines notice should now be in the queue.
+    items = _drain_queue(fake_self._output_queue)
+    assert any("42" in item and "dropped" in item for item in items)
+    # Watermark must be advanced so the same drops are not re-reported.
+    assert fake_self._last_reported_drops == 42
+
+
+def test_poll_output_retains_dropped_count_when_queue_full() -> None:
+    """_poll_output must advance the watermark once the notice is successfully enqueued."""
+    fake_self = _make_fake_self()
+    # Use a tiny bounded queue (maxsize=1) and fill it so it must be drained first.
+    fake_self._output_queue = queue.Queue(maxsize=1)
+    fake_self._output_queue.put_nowait("already full\n")
+    fake_self._dropped_lines = 7
+
+    RobocopyGUI._poll_output(fake_self)
+
+    # After draining 1 item, the notice should have been enqueued successfully.
+    items = _drain_queue(fake_self._output_queue)
+    assert any("7" in item and "dropped" in item for item in items)
+    # Watermark must be advanced to match the current drop count.
+    assert fake_self._last_reported_drops == 7
+
+
+def test_async_execute_drops_lines_when_queue_full() -> None:
+    """_async_execute increments _dropped_lines instead of blocking when the queue is full."""
+    fake_self = _make_fake_self()
+    # Fill the queue to capacity so every subsequent put raises queue.Full.
+    fake_self._output_queue = queue.Queue(maxsize=2)
+    # Two output lines; the queue will hold only the first two.
+    mock_proc = make_mock_async_proc(returncode=0, output="line1\nline2\nline3\n", pid=99)
+
+    with patch("rbcopy.gui.main_window.asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
+        with patch("rbcopy.gui.main_window.notify_job_complete"):
+            with patch("rbcopy.gui.main_window.parse_summary_from_log", return_value=None):
+                asyncio.run(RobocopyGUI._async_execute(fake_self, ["robocopy", "C:/src", "C:/dst"]))
+
+    # At least one line must have been dropped (queue maxsize=2 but we have
+    # 3 output lines plus the exit-code message).
+    assert fake_self._dropped_lines >= 1
+
+
+def test_output_queue_maxsize_is_bounded() -> None:
+    """_OUTPUT_QUEUE_MAXSIZE must be a positive finite integer."""
+    assert isinstance(_OUTPUT_QUEUE_MAXSIZE, int)
+    assert _OUTPUT_QUEUE_MAXSIZE > 0
 
 
 def test_write_output_configures_widget() -> None:
@@ -1454,7 +1583,7 @@ def test_save_custom_preset_shows_error_on_disk_failure(tmp_path: Path) -> None:
     with (
         patch("rbcopy.gui.main_window._SavePresetDialog", return_value=_mock_dialog("Fail")),
         patch("rbcopy.gui.main_window.messagebox.showerror") as mock_error,
-        patch.object(Path, "write_text", side_effect=OSError("disk full")),
+        patch.object(Path, "write_bytes", side_effect=OSError("disk full")),
     ):
         RobocopyGUI._save_custom_preset(fake)
 
@@ -1474,7 +1603,7 @@ def test_save_custom_preset_no_info_dialog_on_failure(tmp_path: Path) -> None:
         patch("rbcopy.gui.main_window._SavePresetDialog", return_value=_mock_dialog("Fail")),
         patch("rbcopy.gui.main_window.messagebox.showinfo") as mock_info,
         patch("rbcopy.gui.main_window.messagebox.showerror"),
-        patch.object(Path, "write_text", side_effect=OSError("disk full")),
+        patch.object(Path, "write_bytes", side_effect=OSError("disk full")),
     ):
         RobocopyGUI._save_custom_preset(fake)
 
@@ -4411,3 +4540,306 @@ def test_rebuild_bookmarks_menu_includes_manage_bookmarks() -> None:
 
     labels = [call.kwargs.get("label", "") for call in fake._bookmarks_menu.add_command.call_args_list]
     assert any("Manage Bookmarks" in label for label in labels)
+
+
+# ---------------------------------------------------------------------------
+# _import_exclusions_from_file tests
+# ---------------------------------------------------------------------------
+
+
+def _make_import_vars() -> tuple[MagicMock, MagicMock, MagicMock]:
+    """Return (enabled_var, value_var, entry) mocks for import tests."""
+    enabled_var = MagicMock()
+    enabled_var.get.return_value = False
+    value_var = MagicMock()
+    value_var.get.return_value = ""
+    entry = MagicMock()
+    return enabled_var, value_var, entry
+
+
+def test_import_exclusions_cancels_when_no_file_selected() -> None:
+    """Cancelling the file dialog must leave vars untouched."""
+    fake = _make_fake_self()
+    enabled_var, value_var, entry = _make_import_vars()
+
+    with patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=""):
+        RobocopyGUI._import_exclusions_from_file(fake, "/XF", enabled_var, value_var, entry)
+
+    value_var.set.assert_not_called()
+    enabled_var.set.assert_not_called()
+    entry.config.assert_not_called()
+
+
+def test_import_exclusions_sets_patterns_into_empty_field(tmp_path: Path) -> None:
+    """Patterns from the file are written to value_var when the field is empty."""
+    txt = tmp_path / "exclusions.txt"
+    txt.write_text("*.tmp\n*.bak\n", encoding="utf-8")
+
+    fake = _make_fake_self()
+    enabled_var, value_var, entry = _make_import_vars()
+
+    with patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)):
+        RobocopyGUI._import_exclusions_from_file(fake, "/XF", enabled_var, value_var, entry)
+
+    value_var.set.assert_called_once_with("*.tmp *.bak")
+    enabled_var.set.assert_called_once_with(True)
+    entry.config.assert_called_once_with(state="normal")
+
+
+def test_import_exclusions_appends_to_existing_value(tmp_path: Path) -> None:
+    """New patterns are appended to whatever is already in value_var."""
+    txt = tmp_path / "exclusions.txt"
+    txt.write_text("*.iso\n", encoding="utf-8")
+
+    fake = _make_fake_self()
+    enabled_var, value_var, entry = _make_import_vars()
+    value_var.get.return_value = "*.img"
+
+    with patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)):
+        RobocopyGUI._import_exclusions_from_file(fake, "/XF", enabled_var, value_var, entry)
+
+    value_var.set.assert_called_once_with("*.img *.iso")
+
+
+def test_import_exclusions_skips_blank_and_comment_lines(tmp_path: Path) -> None:
+    """Blank lines and '#' comment lines must not be imported as patterns."""
+    txt = tmp_path / "exclusions.txt"
+    txt.write_text("# this is a comment\n\n*.log\n  \n# another comment\n*.tmp\n", encoding="utf-8")
+
+    fake = _make_fake_self()
+    enabled_var, value_var, entry = _make_import_vars()
+
+    with patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)):
+        RobocopyGUI._import_exclusions_from_file(fake, "/XD", enabled_var, value_var, entry)
+
+    value_var.set.assert_called_once_with("*.log *.tmp")
+
+
+def test_import_exclusions_shows_info_when_file_has_no_usable_patterns(tmp_path: Path) -> None:
+    """An info dialog is shown when every line in the file is blank or a comment."""
+    txt = tmp_path / "exclusions.txt"
+    txt.write_text("# only comments\n\n# another\n", encoding="utf-8")
+
+    fake = _make_fake_self()
+    enabled_var, value_var, entry = _make_import_vars()
+
+    with (
+        patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)),
+        patch("rbcopy.gui.main_window.messagebox.showinfo") as mock_info,
+    ):
+        RobocopyGUI._import_exclusions_from_file(fake, "/XF", enabled_var, value_var, entry)
+
+    mock_info.assert_called_once()
+    value_var.set.assert_not_called()
+    enabled_var.set.assert_not_called()
+
+
+def test_import_exclusions_shows_error_on_read_failure(tmp_path: Path) -> None:
+    """An error dialog is shown when the chosen file cannot be read."""
+    fake = _make_fake_self()
+    enabled_var, value_var, entry = _make_import_vars()
+
+    with (
+        patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(tmp_path / "missing.txt")),
+        patch("rbcopy.gui.main_window.messagebox.showerror") as mock_err,
+    ):
+        RobocopyGUI._import_exclusions_from_file(fake, "/XF", enabled_var, value_var, entry)
+
+    mock_err.assert_called_once()
+    value_var.set.assert_not_called()
+    enabled_var.set.assert_not_called()
+
+
+def test_import_exclusions_method_exists() -> None:
+    """RobocopyGUI must expose a callable _import_exclusions_from_file method."""
+    assert callable(RobocopyGUI._import_exclusions_from_file)
+
+
+# ---------------------------------------------------------------------------
+# _import_file_filter_from_file tests
+# ---------------------------------------------------------------------------
+
+
+def test_import_file_filter_method_exists() -> None:
+    """RobocopyGUI must expose a callable _import_file_filter_from_file method."""
+    assert callable(RobocopyGUI._import_file_filter_from_file)
+
+
+def test_import_file_filter_cancels_when_no_file_selected() -> None:
+    """Cancelling the file dialog must leave file filter vars untouched."""
+    fake = _make_fake_self()
+
+    with patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=""):
+        RobocopyGUI._import_file_filter_from_file(fake)
+
+    fake._file_filter_var.set.assert_not_called()
+    fake._file_filter_enabled_var.set.assert_not_called()
+
+
+def test_import_file_filter_sets_patterns_into_empty_field(tmp_path: Path) -> None:
+    """Patterns from the file are written to _file_filter_var when field is empty."""
+    txt = tmp_path / "includes.txt"
+    txt.write_text("*.img\n*.raw\n", encoding="utf-8")
+
+    fake = _make_fake_self()
+    fake._file_filter_var.get.return_value = ""
+    fake._file_filter_entry = MagicMock()
+
+    with patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)):
+        RobocopyGUI._import_file_filter_from_file(fake)
+
+    fake._file_filter_var.set.assert_called_once_with("*.img *.raw")
+    fake._file_filter_enabled_var.set.assert_called_once_with(True)
+    fake._file_filter_entry.config.assert_called_once_with(state="normal")
+
+
+def test_import_file_filter_appends_to_existing_value(tmp_path: Path) -> None:
+    """New patterns are appended to whatever is already in _file_filter_var."""
+    txt = tmp_path / "includes.txt"
+    txt.write_text("*.iso\n", encoding="utf-8")
+
+    fake = _make_fake_self()
+    fake._file_filter_var.get.return_value = "*.img"
+    fake._file_filter_entry = MagicMock()
+
+    with patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)):
+        RobocopyGUI._import_file_filter_from_file(fake)
+
+    fake._file_filter_var.set.assert_called_once_with("*.img *.iso")
+
+
+def test_import_file_filter_skips_blank_and_comment_lines(tmp_path: Path) -> None:
+    """Blank lines and '#' comment lines must not be imported as patterns."""
+    txt = tmp_path / "includes.txt"
+    txt.write_text("# header\n\n*.zip\n  \n# note\n*.tar\n", encoding="utf-8")
+
+    fake = _make_fake_self()
+    fake._file_filter_var.get.return_value = ""
+    fake._file_filter_entry = MagicMock()
+
+    with patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)):
+        RobocopyGUI._import_file_filter_from_file(fake)
+
+    fake._file_filter_var.set.assert_called_once_with("*.zip *.tar")
+
+
+def test_import_file_filter_shows_info_when_no_usable_patterns(tmp_path: Path) -> None:
+    """An info dialog is shown when every line is blank or a comment."""
+    txt = tmp_path / "includes.txt"
+    txt.write_text("# only comments\n\n", encoding="utf-8")
+
+    fake = _make_fake_self()
+    fake._file_filter_var.get.return_value = ""
+    fake._file_filter_entry = MagicMock()
+
+    with (
+        patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)),
+        patch("rbcopy.gui.main_window.messagebox.showinfo") as mock_info,
+    ):
+        RobocopyGUI._import_file_filter_from_file(fake)
+
+    mock_info.assert_called_once()
+    fake._file_filter_var.set.assert_not_called()
+    fake._file_filter_enabled_var.set.assert_not_called()
+
+
+def test_import_file_filter_shows_error_on_read_failure(tmp_path: Path) -> None:
+    """An error dialog is shown when the chosen file cannot be read."""
+    fake = _make_fake_self()
+    fake._file_filter_var.get.return_value = ""
+    fake._file_filter_entry = MagicMock()
+
+    with (
+        patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(tmp_path / "missing.txt")),
+        patch("rbcopy.gui.main_window.messagebox.showerror") as mock_err,
+    ):
+        RobocopyGUI._import_file_filter_from_file(fake)
+
+    mock_err.assert_called_once()
+    fake._file_filter_var.set.assert_not_called()
+    fake._file_filter_enabled_var.set.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Quoting and encoding tests shared by both import helpers
+# ---------------------------------------------------------------------------
+
+
+def test_import_exclusions_quotes_patterns_with_spaces(tmp_path: Path) -> None:
+    """Patterns containing spaces must be wrapped in double-quotes."""
+    txt = tmp_path / "exclusions.txt"
+    txt.write_text("My Folder\nnormal\nAnother Dir\n", encoding="utf-8")
+
+    fake = _make_fake_self()
+    enabled_var, value_var, entry = _make_import_vars()
+
+    with patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)):
+        RobocopyGUI._import_exclusions_from_file(fake, "/XD", enabled_var, value_var, entry)
+
+    value_var.set.assert_called_once_with('"My Folder" normal "Another Dir"')
+
+
+def test_import_exclusions_does_not_double_quote_already_quoted(tmp_path: Path) -> None:
+    """Patterns already wrapped in double-quotes must not be quoted again."""
+    txt = tmp_path / "exclusions.txt"
+    txt.write_text('"Already Quoted"\nnormal\n', encoding="utf-8")
+
+    fake = _make_fake_self()
+    enabled_var, value_var, entry = _make_import_vars()
+
+    with patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)):
+        RobocopyGUI._import_exclusions_from_file(fake, "/XD", enabled_var, value_var, entry)
+
+    value_var.set.assert_called_once_with('"Already Quoted" normal')
+
+
+def test_import_exclusions_handles_unicode_decode_error(tmp_path: Path) -> None:
+    """A UnicodeDecodeError when reading the file must show an error dialog."""
+    txt = tmp_path / "exclusions.txt"
+    txt.write_bytes(b"\xff\xfe invalid utf-8 \x00")
+
+    fake = _make_fake_self()
+    enabled_var, value_var, entry = _make_import_vars()
+
+    with (
+        patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)),
+        patch("rbcopy.gui.main_window.messagebox.showerror") as mock_err,
+    ):
+        RobocopyGUI._import_exclusions_from_file(fake, "/XF", enabled_var, value_var, entry)
+
+    mock_err.assert_called_once()
+    value_var.set.assert_not_called()
+
+
+def test_import_file_filter_quotes_patterns_with_spaces(tmp_path: Path) -> None:
+    """File filter patterns containing spaces must be wrapped in double-quotes."""
+    txt = tmp_path / "filters.txt"
+    txt.write_text("My Report.docx\nplain.txt\n", encoding="utf-8")
+
+    fake = _make_fake_self()
+    fake._file_filter_var.get.return_value = ""
+    fake._file_filter_entry = MagicMock()
+
+    with patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)):
+        RobocopyGUI._import_file_filter_from_file(fake)
+
+    fake._file_filter_var.set.assert_called_once_with('"My Report.docx" plain.txt')
+
+
+def test_import_file_filter_handles_unicode_decode_error(tmp_path: Path) -> None:
+    """A UnicodeDecodeError when reading the file must show an error dialog."""
+    txt = tmp_path / "filters.txt"
+    txt.write_bytes(b"\xff\xfe invalid utf-8 \x00")
+
+    fake = _make_fake_self()
+    fake._file_filter_var.get.return_value = ""
+    fake._file_filter_entry = MagicMock()
+
+    with (
+        patch("rbcopy.gui.main_window.filedialog.askopenfilename", return_value=str(txt)),
+        patch("rbcopy.gui.main_window.messagebox.showerror") as mock_err,
+    ):
+        RobocopyGUI._import_file_filter_from_file(fake)
+
+    mock_err.assert_called_once()
+    fake._file_filter_var.set.assert_not_called()

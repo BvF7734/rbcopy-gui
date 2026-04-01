@@ -48,6 +48,20 @@ def launch() -> None:
                 log_dir,
             )
 
+    # Request system-DPI-aware rendering so Tkinter text and widgets are not
+    # blurry / bitmap-scaled on High-DPI (e.g. 4K) Windows displays.
+    # shcore.SetProcessDpiAwareness requires Windows 8.1+; the try/except
+    # silently skips the call on older systems or non-Windows platforms.
+    # Value 1 = PROCESS_SYSTEM_DPI_AWARE, which is the correct pragmatic
+    # choice for Tkinter – value 2 (per-monitor) would require manual widget
+    # rescaling that Tkinter does not provide automatically.
+    try:
+        import ctypes  # noqa: PLC0415
+
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except (AttributeError, OSError):
+        logger.debug("SetProcessDpiAwareness not available; skipping High-DPI setup", exc_info=True)
+
     app = RobocopyGUI()
 
     if file_handlers:

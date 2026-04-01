@@ -55,6 +55,13 @@ _GEOMETRY_PATH: Path = get_data_dir() / "geometry.json"
 # robocopy emits a burst of output, which would otherwise freeze the GUI.
 _MAX_LINES_PER_POLL: int = 100
 
+# Upper bound on the number of items buffered between the background
+# asyncio thread and the Tkinter main thread.  Without a cap, robocopy
+# jobs that emit thousands of lines per second (e.g. many small files on
+# NVMe) would grow the queue without limit, ballooning memory and keeping
+# the UI printing output long after the process has already exited.
+_OUTPUT_QUEUE_MAXSIZE: int = 5000
+
 # Flags that can delete files from the destination with no recovery path.
 _DESTRUCTIVE_FLAGS: frozenset[str] = frozenset({"/MIR", "/PURGE"})
 
@@ -384,14 +391,29 @@ class RobocopyGUI(tk.Tk):
         super().__init__()
         self.title("RbCopy – Robocopy GUI")
         self.resizable(True, True)
-        self.minsize(680, 600)
+        self.minsize(800, 700)
 
         # Style
         style = ttk.Style(self)
         style.theme_use("clam")
 
         # Thread-safe queue for subprocess output; polled by the main thread.
-        self._output_queue: queue.Queue[str] = queue.Queue()
+        # Bounded to _OUTPUT_QUEUE_MAXSIZE so that fast robocopy jobs cannot
+        # exhaust memory.  Lines that arrive when the queue is full are counted
+        # and a summary notice is injected by _poll_output once space frees up.
+        self._output_queue: queue.Queue[str] = queue.Queue(maxsize=_OUTPUT_QUEUE_MAXSIZE)
+
+        # Monotonic count of output lines dropped because the queue was full.
+        # May be incremented by any thread (background asyncio or main thread)
+        # that calls _append_output when the queue is full.  Access must be
+        # guarded by _dropped_lines_lock to prevent lost updates under
+        # concurrent writes.  The main thread tracks how many drops have
+        # already been reported via _last_reported_drops and computes the
+        # delta; neither counter is ever reset, so no read-then-reset race
+        # is possible.
+        self._dropped_lines_lock: threading.Lock = threading.Lock()
+        self._dropped_lines: int = 0
+        self._last_reported_drops: int = 0
 
         # Guard to prevent re-entrant _refresh_widget_states calls while
         # _on_properties_only_toggle is batch-updating multiple variables.
@@ -552,12 +574,24 @@ class RobocopyGUI(tk.Tk):
             state="disabled",
         )
         self._file_filter_entry.grid(row=2, column=1, sticky="ew", padx=4, pady=(4, 0))
-        ttk.Label(path_frame, text="e.g. *.img *.raw", foreground="gray").grid(row=2, column=2, sticky="w", pady=(4, 0))
+        _file_filter_import_btn = ttk.Button(
+            path_frame,
+            text="Import…",
+            width=8,
+            command=self._import_file_filter_from_file,
+        )
+        _file_filter_import_btn.grid(row=2, column=2, padx=(0, 0), pady=(4, 0))
         _ToolTip(
             self._file_filter_cb,
             "Space-separated file patterns passed directly to robocopy.\n"
             "Only files matching these patterns will be copied.\n"
             "Example: *.img  *.raw  backup_*.zip",
+        )
+        _ToolTip(
+            _file_filter_import_btn,
+            "Import a .txt file with one file pattern per line (e.g. *.img).\n"
+            "Blank lines and lines starting with '#' are ignored.\n"
+            "Imported patterns are appended to any value already in the field.",
         )
 
         def _toggle_file_filter_entry(*_args: object) -> None:
@@ -791,6 +825,23 @@ class RobocopyGUI(tk.Tk):
             self._param_vars[flag] = (enabled_var, value_var, entry)
             if flag in PARAM_TOOLTIPS:
                 _ToolTip(cb, PARAM_TOOLTIPS[flag])
+
+            # Add an import button for flags that accept space-separated lists so
+            # users can load dozens of patterns from a .txt file without hand-editing.
+            if flag in ("/XF", "/XD"):
+                import_btn = ttk.Button(
+                    content_frame,
+                    text="Import…",
+                    width=8,
+                    command=partial(self._import_exclusions_from_file, flag, enabled_var, value_var, entry),
+                )
+                import_btn.grid(row=row_idx, column=2, padx=(4, 0), pady=1)
+                _ToolTip(
+                    import_btn,
+                    f"Import a .txt file with one exclusion pattern per line for {flag}.\n"
+                    "Blank lines and lines starting with '#' are ignored.\n"
+                    "Imported patterns are appended to any value already in the field.",
+                )
 
     def _toggle_advanced(self) -> None:
         """Show or hide the advanced flags/params section."""
@@ -1033,6 +1084,123 @@ class RobocopyGUI(tk.Tk):
         path = filedialog.askdirectory(title="Select Destination Directory")
         if path:
             self.dst_var.set(path)
+
+    def _import_patterns_from_file(
+        self,
+        title: str,
+        log_template: str,
+        on_success: Callable[[list[str]], None],
+    ) -> None:
+        """Open a .txt file, parse patterns from it, then call *on_success*.
+
+        Lines that are blank or begin with ``#`` are ignored.  Patterns
+        containing spaces are automatically quoted so that robocopy treats
+        them as single tokens rather than separate arguments.  *on_success*
+        is invoked only when at least one usable pattern was found.
+
+        Args:
+            title:        Title string for the file-chooser dialog.
+            log_template: A ``%``-format string accepting ``(count, path)``
+                          for the info log message emitted on success.
+            on_success:   Callback invoked with the list of parsed patterns.
+        """
+        path_str = filedialog.askopenfilename(
+            title=title,
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            parent=self,
+        )
+        if not path_str:
+            return
+
+        try:
+            raw = Path(path_str).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            logger.exception("Could not read patterns file: %s", path_str)
+            messagebox.showerror(
+                "Import Failed",
+                f"Could not read:\n{path_str}",
+                parent=self,
+            )
+            return
+
+        patterns: list[str] = []
+        for line in raw.splitlines():
+            p = line.strip()
+            if not p or p.startswith("#"):
+                continue
+            # Quote patterns that contain spaces so robocopy treats them as a
+            # single argument.  Skip quoting if already wrapped in double quotes.
+            if " " in p and not (p.startswith('"') and p.endswith('"')):
+                p = f'"{p}"'
+            patterns.append(p)
+
+        if not patterns:
+            messagebox.showinfo(
+                "No Patterns Found",
+                "The selected file contained no usable patterns.\nBlank lines and lines starting with '#' are ignored.",
+                parent=self,
+            )
+            return
+
+        on_success(patterns)
+        logger.info(log_template, len(patterns), path_str)
+
+    def _import_exclusions_from_file(
+        self,
+        flag: str,
+        enabled_var: tk.BooleanVar,
+        value_var: tk.StringVar,
+        entry: ttk.Entry,
+    ) -> None:
+        """Import exclusion patterns from a .txt file and append them to *flag*'s value.
+
+        Opens a file chooser restricted to .txt files, reads each line as a
+        pattern, discards blank lines and lines beginning with ``#``, then
+        appends the resulting tokens to any text already in *value_var*.  The
+        flag's checkbox and entry widget are enabled automatically so the
+        imported patterns are included in the next robocopy run.
+
+        Args:
+            flag:        The robocopy flag receiving the import (``/XF`` or ``/XD``).
+            enabled_var: The BooleanVar bound to the flag's checkbox.
+            value_var:   The StringVar bound to the flag's entry field.
+            entry:       The ttk.Entry widget whose state must mirror the checkbox.
+        """
+
+        def _apply(patterns: list[str]) -> None:
+            existing = value_var.get().strip()
+            combined = (existing + " " + " ".join(patterns)).strip() if existing else " ".join(patterns)
+            value_var.set(combined)
+            enabled_var.set(True)
+            entry.config(state="normal")
+
+        self._import_patterns_from_file(
+            title=f"Import exclusions for {flag}",
+            log_template=f"Imported %d exclusion pattern(s) for {flag} from %s",
+            on_success=_apply,
+        )
+
+    def _import_file_filter_from_file(self) -> None:
+        """Import include-file patterns from a .txt file into the file filter field.
+
+        Opens a file chooser restricted to .txt files, reads each line as a
+        pattern, discards blank lines and lines beginning with ``#``, then
+        appends the resulting tokens to any text already in the file filter
+        entry.  The file filter checkbox and entry are enabled automatically.
+        """
+
+        def _apply(patterns: list[str]) -> None:
+            existing = self._file_filter_var.get().strip()
+            combined = (existing + " " + " ".join(patterns)).strip() if existing else " ".join(patterns)
+            self._file_filter_var.set(combined)
+            self._file_filter_enabled_var.set(True)
+            self._file_filter_entry.config(state="normal")
+
+        self._import_patterns_from_file(
+            title="Import file filter patterns",
+            log_template="Imported %d file filter pattern(s) from %s",
+            on_success=_apply,
+        )
 
     def _refresh_path_dropdowns(self) -> None:
         """Sync both path Combobox value lists from the path history store."""
@@ -1463,14 +1631,21 @@ class RobocopyGUI(tk.Tk):
             assert proc.stdout is not None
             async for line_bytes in proc.stdout:
                 line = line_bytes.decode(locale.getpreferredencoding(False), errors="replace")
-                self._output_queue.put(line)
+                # Use non-blocking put_nowait so the asyncio event loop is
+                # never stalled waiting for queue headroom.  Lines dropped
+                # when the buffer is full are counted; _poll_output will
+                # surface a notice to the user once space becomes available.
+                try:
+                    self._output_queue.put_nowait(line)
+                except queue.Full:
+                    self._dropped_lines += 1
                 # Mirror every output line to the logger so the log file
                 # captures the full robocopy job header and job summary.
                 logger.debug("%s", line.rstrip("\n"))
             await proc.wait()
             assert proc.returncode is not None
             exit_code = proc.returncode
-            self._output_queue.put(f"\n[Process exited with code {exit_code}]\n")
+            self._append_output(f"\n[Process exited with code {exit_code}]\n", block=True)
             if exit_code == 0:
                 logger.info("robocopy completed successfully (exit code 0)")
             else:
@@ -1484,17 +1659,17 @@ class RobocopyGUI(tk.Tk):
             if _log_path is not None:
                 _summary = parse_summary_from_log(_log_path)
                 if _summary is not None:
-                    self._output_queue.put(_summary.format_card())
+                    self._append_output(_summary.format_card())
 
             # When /NJS suppresses robocopy's job summary (which contains the
             # end time), record the end timestamp manually.
             if "/NJS" in cmd:
                 logger.info("Job ended: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         except FileNotFoundError:
-            self._output_queue.put("[Error] 'robocopy' was not found. This application requires Windows.\n")
+            self._append_output("[Error] 'robocopy' was not found. This application requires Windows.\n", block=True)
             logger.error("robocopy executable not found")
         except Exception as exc:  # noqa: BLE001
-            self._output_queue.put(f"[Error] {exc}\n")
+            self._append_output(f"[Error] {exc}\n", block=True)
             logger.exception("Unexpected error while running robocopy")
         finally:
             self._current_proc = None
@@ -1579,9 +1754,53 @@ class RobocopyGUI(tk.Tk):
         except OSError:
             logger.debug("terminate() failed; process may have already exited")
 
-    def _append_output(self, text: str) -> None:
-        """Enqueue text so the main-thread poll loop can write it safely."""
-        self._output_queue.put(text)
+    def _append_output(self, text: str, block: bool = False) -> None:
+        """Enqueue *text* for display in the output console.
+
+        Thread-safe: may be called from the Tkinter main thread or from the
+        background asyncio thread.  Uses ``put_nowait`` by default so the caller
+        is never blocked; if the queue is full the line is silently dropped and
+        ``_dropped_lines`` is incremented so that ``_poll_output`` can surface
+        a notice to the user.
+
+        When *block* is ``True`` (for critical messages such as exit codes or
+        fatal errors), the method makes a best-effort to guarantee delivery by
+        evicting one older queued line when the queue is full, but it never
+        blocks indefinitely so that background threads can always exit cleanly
+        during shutdown.
+        """
+        if block:
+            # Skip enqueue entirely if we're shutting down to avoid stalling
+            # the background thread after the window is destroyed.
+            if self._shutdown.is_set():
+                return
+            try:
+                # Fast path: queue has space.
+                self._output_queue.put_nowait(text)
+            except queue.Full:
+                # Evict one older, lower-priority line to make room for this
+                # critical message, then retry once.  The evicted-line counter
+                # is only incremented when get_nowait() actually removed a line
+                # (i.e. it succeeded).  If it raises queue.Empty, the queue was
+                # concurrently drained and no line was evicted, so no increment.
+                try:
+                    self._output_queue.get_nowait()
+                    with self._dropped_lines_lock:
+                        self._dropped_lines += 1
+                except queue.Empty:
+                    pass
+                try:
+                    self._output_queue.put_nowait(text)
+                except queue.Full:
+                    # Still no room; drop rather than risk deadlocking.
+                    with self._dropped_lines_lock:
+                        self._dropped_lines += 1
+        else:
+            try:
+                self._output_queue.put_nowait(text)
+            except queue.Full:
+                with self._dropped_lines_lock:
+                    self._dropped_lines += 1
 
     def _poll_output(self) -> None:
         """Drain the output queue and write any pending text to the console.
@@ -1604,6 +1823,23 @@ class RobocopyGUI(tk.Tk):
             pass
         if lines:
             self._write_output("".join(lines))
+        # After draining, inject a notice if any lines were dropped since the
+        # last poll cycle.  Done after draining to maximise queue headroom.
+        # _dropped_lines is protected by _dropped_lines_lock; we take a
+        # snapshot here so the comparison and watermark update are consistent.
+        with self._dropped_lines_lock:
+            current_drops = self._dropped_lines
+        if current_drops > self._last_reported_drops:
+            delta = current_drops - self._last_reported_drops
+            try:
+                self._output_queue.put_nowait(f"[{delta} line(s) dropped — output buffer full]\n")
+            except queue.Full:
+                # Queue still full; leave _last_reported_drops unchanged so we
+                # retry reporting the same unreported drops on the next cycle.
+                pass
+            else:
+                # Only advance the watermark once the notice has been queued.
+                self._last_reported_drops = current_drops
         # Reschedule; 100 ms keeps the UI responsive without burning CPU.
         self.after(100, self._poll_output)
 
