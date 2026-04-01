@@ -120,13 +120,13 @@ class _PreferencesDialog(tk.Toplevel):
             text="Reset path history…",
             command=self._on_reset_history,
             state="normal" if self._on_clear_history else "disabled",
-        ).pack(anchor="w", pady=2)
+        ).pack(anchor="w", pady=2, fill="x")
         ttk.Button(
             data_frame,
             text="Reset bookmarks…",
             command=self._on_reset_bookmarks,
             state="normal" if self._on_clear_bookmarks else "disabled",
-        ).pack(anchor="w", pady=2)
+        ).pack(anchor="w", pady=2, fill="x")
 
         # ── Buttons ───────────────────────────────────────────────────
         btn_frame = ttk.Frame(self)

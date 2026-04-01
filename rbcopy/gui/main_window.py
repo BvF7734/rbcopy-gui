@@ -391,7 +391,7 @@ class RobocopyGUI(tk.Tk):
         super().__init__()
         self.title("RbCopy – Robocopy GUI")
         self.resizable(True, True)
-        self.minsize(680, 600)
+        self.minsize(800, 700)
 
         # Style
         style = ttk.Style(self)
