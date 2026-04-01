@@ -568,12 +568,24 @@ class RobocopyGUI(tk.Tk):
             state="disabled",
         )
         self._file_filter_entry.grid(row=2, column=1, sticky="ew", padx=4, pady=(4, 0))
-        ttk.Label(path_frame, text="e.g. *.img *.raw", foreground="gray").grid(row=2, column=2, sticky="w", pady=(4, 0))
+        _file_filter_import_btn = ttk.Button(
+            path_frame,
+            text="Import…",
+            width=8,
+            command=self._import_file_filter_from_file,
+        )
+        _file_filter_import_btn.grid(row=2, column=2, padx=(0, 0), pady=(4, 0))
         _ToolTip(
             self._file_filter_cb,
             "Space-separated file patterns passed directly to robocopy.\n"
             "Only files matching these patterns will be copied.\n"
             "Example: *.img  *.raw  backup_*.zip",
+        )
+        _ToolTip(
+            _file_filter_import_btn,
+            "Import a .txt file with one file pattern per line (e.g. *.img).\n"
+            "Blank lines and lines starting with '#' are ignored.\n"
+            "Imported patterns are appended to any value already in the field.",
         )
 
         def _toggle_file_filter_entry(*_args: object) -> None:
@@ -807,6 +819,23 @@ class RobocopyGUI(tk.Tk):
             self._param_vars[flag] = (enabled_var, value_var, entry)
             if flag in PARAM_TOOLTIPS:
                 _ToolTip(cb, PARAM_TOOLTIPS[flag])
+
+            # Add an import button for flags that accept space-separated lists so
+            # users can load dozens of patterns from a .txt file without hand-editing.
+            if flag in ("/XF", "/XD"):
+                import_btn = ttk.Button(
+                    content_frame,
+                    text="Import…",
+                    width=8,
+                    command=partial(self._import_exclusions_from_file, flag, enabled_var, value_var, entry),
+                )
+                import_btn.grid(row=row_idx, column=2, padx=(4, 0), pady=1)
+                _ToolTip(
+                    import_btn,
+                    f"Import a .txt file with one exclusion pattern per line for {flag}.\n"
+                    "Blank lines and lines starting with '#' are ignored.\n"
+                    "Imported patterns are appended to any value already in the field.",
+                )
 
     def _toggle_advanced(self) -> None:
         """Show or hide the advanced flags/params section."""
@@ -1049,6 +1078,109 @@ class RobocopyGUI(tk.Tk):
         path = filedialog.askdirectory(title="Select Destination Directory")
         if path:
             self.dst_var.set(path)
+
+    def _import_exclusions_from_file(
+        self,
+        flag: str,
+        enabled_var: tk.BooleanVar,
+        value_var: tk.StringVar,
+        entry: ttk.Entry,
+    ) -> None:
+        """Import exclusion patterns from a .txt file and append them to *flag*'s value.
+
+        Opens a file chooser restricted to .txt files, reads each line as a
+        pattern, discards blank lines and lines beginning with ``#``, then
+        appends the resulting tokens to any text already in *value_var*.  The
+        flag's checkbox and entry widget are enabled automatically so the
+        imported patterns are included in the next robocopy run.
+
+        Args:
+            flag:        The robocopy flag receiving the import (``/XF`` or ``/XD``).
+            enabled_var: The BooleanVar bound to the flag's checkbox.
+            value_var:   The StringVar bound to the flag's entry field.
+            entry:       The ttk.Entry widget whose state must mirror the checkbox.
+        """
+        path_str = filedialog.askopenfilename(
+            title=f"Import exclusions for {flag}",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            parent=self,
+        )
+        if not path_str:
+            return
+
+        try:
+            raw = Path(path_str).read_text(encoding="utf-8")
+        except OSError:
+            logger.exception("Could not read exclusions file: %s", path_str)
+            messagebox.showerror(
+                "Import Failed",
+                f"Could not read:\n{path_str}",
+                parent=self,
+            )
+            return
+
+        patterns: list[str] = [
+            line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")
+        ]
+        if not patterns:
+            messagebox.showinfo(
+                "No Patterns Found",
+                "The selected file contained no usable patterns.\nBlank lines and lines starting with '#' are ignored.",
+                parent=self,
+            )
+            return
+
+        existing = value_var.get().strip()
+        combined = (existing + " " + " ".join(patterns)).strip() if existing else " ".join(patterns)
+        value_var.set(combined)
+        enabled_var.set(True)
+        entry.config(state="normal")
+        logger.info("Imported %d exclusion pattern(s) for %s from %s", len(patterns), flag, path_str)
+
+    def _import_file_filter_from_file(self) -> None:
+        """Import include-file patterns from a .txt file into the file filter field.
+
+        Opens a file chooser restricted to .txt files, reads each line as a
+        pattern, discards blank lines and lines beginning with ``#``, then
+        appends the resulting tokens to any text already in the file filter
+        entry.  The file filter checkbox and entry are enabled automatically.
+        """
+        path_str = filedialog.askopenfilename(
+            title="Import file filter patterns",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            parent=self,
+        )
+        if not path_str:
+            return
+
+        try:
+            raw = Path(path_str).read_text(encoding="utf-8")
+        except OSError:
+            logger.exception("Could not read file filter patterns file: %s", path_str)
+            messagebox.showerror(
+                "Import Failed",
+                f"Could not read:\n{path_str}",
+                parent=self,
+            )
+            return
+
+        patterns: list[str] = [
+            line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")
+        ]
+        if not patterns:
+            messagebox.showinfo(
+                "No Patterns Found",
+                "The selected file contained no usable patterns.\nBlank lines and lines starting with '#' are ignored.",
+                parent=self,
+            )
+            return
+
+        existing = self._file_filter_var.get().strip()
+        combined = (existing + " " + " ".join(patterns)).strip() if existing else " ".join(patterns)
+        self._file_filter_var.set(combined)
+        self._file_filter_enabled_var.set(True)
+        self._file_filter_entry.config(state="normal")
+        logger.info("Imported %d file filter pattern(s) from %s", len(patterns), path_str)
 
     def _refresh_path_dropdowns(self) -> None:
         """Sync both path Combobox value lists from the path history store."""
