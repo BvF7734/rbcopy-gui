@@ -9,25 +9,47 @@ successful run.
 
 from __future__ import annotations
 
-import json
 import sys
 from logging import getLogger
 from pathlib import Path
-from typing import List
+from typing import Any, List
+
+from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
 from rbcopy.app_dirs import get_data_dir
+from rbcopy.storage import JsonStore
 
 logger = getLogger(__name__)
 
 _DEFAULT_HISTORY_PATH: Path = get_data_dir() / "path_history.json"
 MAX_PATHS: int = 20
 
-# JSON keys for the two lists.
-_KEY_SOURCE: str = "source"
-_KEY_DESTINATION: str = "destination"
+
+class PathHistoryData(BaseModel):
+    """Persisted source and destination path history.
+
+    Attributes:
+        source:      Ordered list of recently used source paths (MRU first).
+        destination: Ordered list of recently used destination paths (MRU first).
+    """
+
+    source: List[str] = Field(default_factory=list)
+    destination: List[str] = Field(default_factory=list)
+
+    @field_validator("source", "destination", mode="before")
+    @classmethod
+    def coerce_and_trim(cls, v: Any) -> List[str]:
+        """Coerce each element to str, drop non-list values, and cap at MAX_PATHS."""
+        if not isinstance(v, list):
+            return []
+        return [str(item) for item in v][:MAX_PATHS]
 
 
-class PathHistoryStore:
+# Module-level adapter so the type inspection cost is paid once at import time.
+_PATH_HISTORY_ADAPTER: TypeAdapter[PathHistoryData] = TypeAdapter(PathHistoryData)
+
+
+class PathHistoryStore(JsonStore[PathHistoryData]):
     """Manages recently-used source and destination path lists.
 
     Paths are persisted to a JSON file so they survive application restarts.
@@ -41,10 +63,10 @@ class PathHistoryStore:
     """
 
     def __init__(self, path: Path | None = None) -> None:
-        self._path: Path = path if path is not None else _DEFAULT_HISTORY_PATH
-        self._source: List[str] = []
-        self._destination: List[str] = []
-        # True whenever in-memory lists differ from what is on disk.
+        resolved: Path = path if path is not None else _DEFAULT_HISTORY_PATH
+        super().__init__(adapter=_PATH_HISTORY_ADAPTER, path=resolved)
+        self._data: PathHistoryData = PathHistoryData()
+        # True whenever in-memory state differs from what is on disk.
         self._dirty: bool = False
         self._load()
 
@@ -67,7 +89,7 @@ class PathHistoryStore:
         Args:
             path: The source path string to record.
         """
-        self._source = _deduplicate_prepend(self._source, path)
+        self._data.source = _deduplicate_prepend(self._data.source, path)
         self._dirty = True
 
     def add_destination(self, path: str) -> None:
@@ -85,16 +107,16 @@ class PathHistoryStore:
         Args:
             path: The destination path string to record.
         """
-        self._destination = _deduplicate_prepend(self._destination, path)
+        self._data.destination = _deduplicate_prepend(self._data.destination, path)
         self._dirty = True
 
     def get_source_paths(self) -> List[str]:
         """Return a snapshot of the current source path history (most-recent first)."""
-        return list(self._source)
+        return list(self._data.source)
 
     def get_destination_paths(self) -> List[str]:
         """Return a snapshot of the current destination path history (most-recent first)."""
-        return list(self._destination)
+        return list(self._data.destination)
 
     def flush(self) -> None:
         """Write pending changes to disk if the in-memory state has changed.
@@ -108,18 +130,14 @@ class PathHistoryStore:
         :meth:`flush` can retry.
         """
         if self._dirty:
-            try:
-                self._persist()
-            except OSError:
-                logger.exception("Failed to flush path history to %s", self._path)
-            else:
+            if self._persist(self._data):
                 self._dirty = False
+            # On failure: store stays dirty for the next flush() attempt.
+            # The base class already logs the exception.
 
     def clear(self) -> None:
         """Erase all source and destination history entries and persist the change."""
-        self._source = []
-        self._destination = []
-        # Mark dirty first so a failed persist can be retried via flush().
+        self._data = PathHistoryData()
         self._dirty = True
         self.flush()
 
@@ -134,43 +152,8 @@ class PathHistoryStore:
         corrupt JSON, non-list values, unexpected data types) so a bad history
         file never prevents the application from starting.
         """
-        if not self._path.exists():
-            return
-        try:
-            raw = self._path.read_text(encoding="utf-8")
-            data = json.loads(raw)
-            source_raw = data.get(_KEY_SOURCE, [])
-            if isinstance(source_raw, list):
-                self._source = [str(p) for p in source_raw][:MAX_PATHS]
-            else:
-                self._source = []
-            destination_raw = data.get(_KEY_DESTINATION, [])
-            if isinstance(destination_raw, list):
-                self._destination = [str(p) for p in destination_raw][:MAX_PATHS]
-            else:
-                self._destination = []
-        except (json.JSONDecodeError, ValueError, OSError, TypeError):
-            logger.debug(
-                "Failed to load path history from %s; initialising empty lists",
-                self._path,
-                exc_info=True,
-            )
-            self._source = []
-            self._destination = []
-
-    def _persist(self) -> None:
-        """Serialise both lists and write them to the JSON file.
-
-        Raises:
-            OSError: If the file cannot be written.  Callers are responsible
-                for handling this and deciding whether to retry.
-        """
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        data: dict[str, List[str]] = {
-            _KEY_SOURCE: self._source,
-            _KEY_DESTINATION: self._destination,
-        }
-        self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        loaded = self._load_from_disk()
+        self._data = loaded if loaded is not None else PathHistoryData()
 
 
 def _normalize_path_separators(path: str) -> str:

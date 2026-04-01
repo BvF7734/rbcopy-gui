@@ -440,7 +440,7 @@ def test_flush_oserror_is_silently_ignored(tmp_path: Path) -> None:
     store = PathHistoryStore(path=history_path)
     store.add_source("/any/path")
 
-    with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+    with patch("pathlib.Path.write_bytes", side_effect=OSError("disk full")):
         # Must not raise even though the underlying write fails
         store.flush()
 
@@ -454,7 +454,7 @@ def test_flush_oserror_keeps_store_dirty_for_retry(tmp_path: Path) -> None:
     store = PathHistoryStore(path=history_path)
     store.add_source("/retry/path")
 
-    with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+    with patch("pathlib.Path.write_bytes", side_effect=OSError("disk full")):
         store.flush()
 
     # The file must not have been written yet.

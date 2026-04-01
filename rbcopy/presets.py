@@ -15,9 +15,11 @@ from importlib import resources
 from logging import getLogger
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
-from rbcopy.app_dirs import get_data_dir
 
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError, field_validator
+
+from rbcopy.app_dirs import get_data_dir
+from rbcopy.storage import JsonStore
 
 logger = getLogger(__name__)
 
@@ -136,7 +138,7 @@ def _load_bundled_presets() -> List[CustomPreset]:
 _PRESETS_ADAPTER: TypeAdapter[List[CustomPreset]] = TypeAdapter(List[CustomPreset])
 
 
-class CustomPresetsStore:
+class CustomPresetsStore(JsonStore[List[CustomPreset]]):
     """Manages loading and saving :class:`CustomPreset` objects to a JSON file.
 
     On construction the store loads any previously saved presets from *path*.
@@ -152,7 +154,8 @@ class CustomPresetsStore:
     """
 
     def __init__(self, path: Path | None = None) -> None:
-        self._path: Path = path if path is not None else _DEFAULT_PRESETS_PATH
+        resolved: Path = path if path is not None else _DEFAULT_PRESETS_PATH
+        super().__init__(adapter=_PRESETS_ADAPTER, path=resolved)
         self._presets: List[CustomPreset] = []
         self._load()
 
@@ -183,7 +186,7 @@ class CustomPresetsStore:
         """
         previous = list(self._presets)
         self._presets = [p for p in self._presets if p.name != preset.name] + [preset]
-        if not self._persist():
+        if not self._persist(self._presets):
             self._presets = previous
             return False
         return True
@@ -195,7 +198,7 @@ class CustomPresetsStore:
             name: The name of the preset to remove.  A no-op if not found.
         """
         self._presets = [p for p in self._presets if p.name != name]
-        self._persist()
+        self._persist(self._presets)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -223,25 +226,22 @@ class CustomPresetsStore:
                 )
                 self._presets = bundled
                 # Persist immediately so subsequent launches load from disk.
-                self._persist()
+                self._persist(self._presets)
             else:
                 self._presets = []
             return
 
-        try:
-            raw = self._path.read_text(encoding="utf-8")
-            data = json.loads(raw)
-            self._presets = [CustomPreset.model_validate(p) for p in data]
-        except (json.JSONDecodeError, ValueError, OSError, ValidationError):
+        loaded = self._load_from_disk()
+        if loaded is None:
             logger.warning(
                 "Failed to load custom presets from %s; the file may be corrupted "
                 "or contain invalid data — initialising with empty presets",
                 self._path,
-                exc_info=True,
             )
             self._presets = []
             return
 
+        self._presets = loaded
         self._merge_bundled_updates()
 
     def _merge_bundled_updates(self) -> None:
@@ -268,18 +268,4 @@ class CustomPresetsStore:
         )
         # Prepend so newly shipped bundled presets appear at the top.
         self._presets = new_bundled + self._presets
-        self._persist()
-
-    def _persist(self) -> bool:
-        """Serialise all presets and write them to the JSON file.
-
-        Returns:
-            ``True`` on success, ``False`` if the write failed.
-        """
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_bytes(_PRESETS_ADAPTER.dump_json(self._presets, indent=2))
-            return True
-        except OSError:
-            logger.exception("Failed to save custom presets to %s", self._path)
-            return False
+        self._persist(self._presets)

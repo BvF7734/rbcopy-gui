@@ -10,7 +10,6 @@ position in the list), so user-arranged menu order is preserved.
 
 from __future__ import annotations
 
-import json
 from logging import getLogger
 from pathlib import Path
 from typing import List
@@ -18,6 +17,7 @@ from typing import List
 from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
 from rbcopy.app_dirs import get_data_dir
+from rbcopy.storage import JsonStore
 
 logger = getLogger(__name__)
 
@@ -57,7 +57,7 @@ class Bookmark(BaseModel):
 _BOOKMARKS_ADAPTER: TypeAdapter[List[Bookmark]] = TypeAdapter(List[Bookmark])
 
 
-class BookmarksStore:
+class BookmarksStore(JsonStore[List[Bookmark]]):
     """Manages loading and saving :class:`Bookmark` objects to a JSON file.
 
     On construction the store loads any previously saved bookmarks from *path*.
@@ -76,7 +76,8 @@ class BookmarksStore:
     """
 
     def __init__(self, path: Path | None = None) -> None:
-        self._path: Path = path if path is not None else _DEFAULT_BOOKMARKS_PATH
+        resolved: Path = path if path is not None else _DEFAULT_BOOKMARKS_PATH
+        super().__init__(adapter=_BOOKMARKS_ADAPTER, path=resolved)
         self._bookmarks: List[Bookmark] = []
         self._load()
 
@@ -121,7 +122,7 @@ class BookmarksStore:
         else:
             self._bookmarks.append(bookmark)
 
-        if not self._persist():
+        if not self._persist(self._bookmarks):
             self._bookmarks = previous
             return False
         return True
@@ -133,12 +134,12 @@ class BookmarksStore:
             name: The name of the bookmark to remove.  A no-op if not found.
         """
         self._bookmarks = [b for b in self._bookmarks if b.name != name]
-        self._persist()
+        self._persist(self._bookmarks)
 
     def clear(self) -> None:
         """Erase all bookmarks and persist the change."""
         self._bookmarks = []
-        self._persist()
+        self._persist(self._bookmarks)
 
     def replace_all(self, bookmarks: List[Bookmark]) -> bool:
         """Replace the entire bookmarks list with *bookmarks* and persist.
@@ -155,7 +156,7 @@ class BookmarksStore:
         """
         previous = list(self._bookmarks)
         self._bookmarks = list(bookmarks)
-        if not self._persist():
+        if not self._persist(self._bookmarks):
             self._bookmarks = previous
             return False
         return True
@@ -170,32 +171,4 @@ class BookmarksStore:
         Silently initialises to an empty list when the file does not exist,
         is not valid JSON, or contains records that fail Pydantic validation.
         """
-        if not self._path.exists():
-            self._bookmarks = []
-            return
-
-        try:
-            raw = self._path.read_text(encoding="utf-8")
-            data = json.loads(raw)
-            self._bookmarks = [Bookmark.model_validate(b) for b in data]
-        except (json.JSONDecodeError, ValueError, OSError):
-            logger.debug(
-                "Failed to load bookmarks from %s; initialising empty",
-                self._path,
-                exc_info=True,
-            )
-            self._bookmarks = []
-
-    def _persist(self) -> bool:
-        """Write the current bookmarks list to disk.
-
-        Returns:
-            ``True`` if the write succeeded, ``False`` otherwise.
-        """
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_bytes(_BOOKMARKS_ADAPTER.dump_json(self._bookmarks, indent=2))
-            return True
-        except OSError:
-            logger.exception("Failed to persist bookmarks to %s", self._path)
-            return False
+        self._bookmarks = self._load_from_disk() or []
