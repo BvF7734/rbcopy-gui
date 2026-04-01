@@ -152,7 +152,7 @@ def test_add_bookmark_rolls_back_on_disk_failure(tmp_path: Path) -> None:
     store = BookmarksStore(path=tmp_path / "bookmarks.json")
     store.add_bookmark("existing", r"C:\existing")
 
-    with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+    with patch.object(Path, "write_bytes", side_effect=OSError("disk full")):
         result = store.add_bookmark("new_bm", r"C:\new")
 
     assert result is False
@@ -165,7 +165,7 @@ def test_add_bookmark_rollback_preserves_original_path_on_replace_failure(tmp_pa
     store = BookmarksStore(path=tmp_path / "bookmarks.json")
     store.add_bookmark("My NAS", r"\\nas\original")
 
-    with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+    with patch.object(Path, "write_bytes", side_effect=OSError("disk full")):
         result = store.add_bookmark("My NAS", r"\\nas\replacement")
 
     assert result is False
@@ -367,7 +367,7 @@ def test_replace_all_rolls_back_on_write_failure(tmp_path: Path) -> None:
 
     original = store.get_bookmarks()
 
-    with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+    with patch("pathlib.Path.write_bytes", side_effect=OSError("disk full")):
         result = store.replace_all([Bookmark(name="X", path=r"C:\x")])
 
     assert result is False

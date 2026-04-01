@@ -50,16 +50,20 @@ def _check_robocopy_available(result: PreflightResult) -> None:
         logger.warning("robocopy.exe not found on PATH")
 
 
-def _check_admin_privileges(result: PreflightResult) -> None:
-    """Append a message or error depending on whether the process is elevated.
+def _check_platform() -> None:
+    """Exit immediately with a fatal error if not running on Windows.
 
-    On non-Windows platforms the check is skipped with an informational note.
+    robocopy is a Windows-only utility; there is no meaningful way to continue
+    on any other platform.
     """
     if sys.platform != "win32":
-        result.messages.append("Administrator privilege check skipped (non-Windows platform)")
-        logger.debug("Administrator privilege check skipped on %s", sys.platform)
-        return
+        msg = "RBCopy requires a Windows environment to run."
+        logger.critical(msg)
+        sys.exit(msg)
 
+
+def _check_admin_privileges(result: PreflightResult) -> None:
+    """Append a message or error depending on whether the process is elevated."""
     # Import ctypes here because ctypes.windll is only available on Windows.
     import ctypes  # noqa: PLC0415
 
@@ -82,18 +86,21 @@ def _check_admin_privileges(result: PreflightResult) -> None:
 def run_preflight_checks() -> PreflightResult:
     """Run all pre-flight checks and return a consolidated status report.
 
+    Immediately exits with a fatal error if the host OS is not Windows.
+
     Checks performed:
 
     1. **robocopy.exe availability** – uses :func:`shutil.which` to confirm the
        binary is accessible on ``PATH``.
     2. **Windows Administrator privileges** – uses :mod:`ctypes` to call
-       ``IsUserAnAdmin``; skipped on non-Windows platforms.
+       ``IsUserAnAdmin``.
 
     Returns:
         A :class:`PreflightResult` whose :attr:`~PreflightResult.ok` attribute
         is ``True`` only when every check passed.
     """
     logger.debug("Starting pre-flight checks")
+    _check_platform()
     result = PreflightResult()
 
     _check_robocopy_available(result)

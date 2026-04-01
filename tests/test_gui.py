@@ -1522,7 +1522,7 @@ def test_save_custom_preset_shows_error_on_disk_failure(tmp_path: Path) -> None:
     with (
         patch("rbcopy.gui.main_window._SavePresetDialog", return_value=_mock_dialog("Fail")),
         patch("rbcopy.gui.main_window.messagebox.showerror") as mock_error,
-        patch.object(Path, "write_text", side_effect=OSError("disk full")),
+        patch.object(Path, "write_bytes", side_effect=OSError("disk full")),
     ):
         RobocopyGUI._save_custom_preset(fake)
 
@@ -1542,7 +1542,7 @@ def test_save_custom_preset_no_info_dialog_on_failure(tmp_path: Path) -> None:
         patch("rbcopy.gui.main_window._SavePresetDialog", return_value=_mock_dialog("Fail")),
         patch("rbcopy.gui.main_window.messagebox.showinfo") as mock_info,
         patch("rbcopy.gui.main_window.messagebox.showerror"),
-        patch.object(Path, "write_text", side_effect=OSError("disk full")),
+        patch.object(Path, "write_bytes", side_effect=OSError("disk full")),
     ):
         RobocopyGUI._save_custom_preset(fake)
 
