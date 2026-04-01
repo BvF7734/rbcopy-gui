@@ -318,8 +318,8 @@ def _make_fake_self() -> MagicMock:
     # Wire _import_patterns_from_file so that calls from the higher-level import
     # helpers (_import_exclusions_from_file, _import_file_filter_from_file) still
     # reach the real implementation without a live Tkinter window.
-    fake._import_patterns_from_file.side_effect = (
-        lambda *a, **kw: RobocopyGUI._import_patterns_from_file(fake, *a, **kw)
+    fake._import_patterns_from_file.side_effect = lambda *a, **kw: RobocopyGUI._import_patterns_from_file(
+        fake, *a, **kw
     )
     fake._shutdown = threading.Event()
     fake._current_proc = None
