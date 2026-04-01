@@ -46,14 +46,61 @@ _LOG_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[[\w\s]+\] \
 
 # Summary row patterns (applied to lines *after* the prefix is stripped).
 # Column order: Total  Copied  Skipped  Mismatch  FAILED  Extras
-_DIRS_RE = re.compile(r"Dirs\s*:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)")
-_FILES_RE = re.compile(r"Files\s*:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)")
+#
+# Unlike Linux tools, robocopy.exe completely ignores Python's LANG environment
+# variable.  Its output language is hard-tied to the Windows system display
+# language, so on a non-English workstation the summary labels differ from
+# the en-US defaults.  Each pattern therefore lists known label variants for
+# the major Windows UI locales:
+#   en-US  Dirs       / Files     / Bytes  / Times    / Speed   / Ended
+#   fr-FR  Répertoires/ Fichiers  / Octets / Durées   / Vitesse / Terminé
+#   de-DE  Verzeichnisse / Dateien/ Bytes  / Zeiten   / Geschw. / Ende
+#   es-ES  Directorios/ Archivos  / Bytes  / Tiempos  / Veloc.  / Finalizado
+#   it-IT  Cartelle   / File      / Byte   / Durate   / Veloc.  / Fine
+#   pt-BR  Pastas     / Arquivos  / Bytes  / Intervalos/ Veloc. / Término
+#
+# Fields whose value is None (pattern did not match) are simply omitted from
+# the summary card, so unrecognised locales degrade gracefully.
+
+_DIRS_RE = re.compile(
+    r"(?:Dirs|Répertoires|Verzeichnisse|Directorios|Cartelle|Pastas)\s*:\s+"
+    r"(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)",
+    re.IGNORECASE,
+)
+_FILES_RE = re.compile(
+    r"(?:Files|Fichiers|Dateien|Archivos|File|Arquivos|Ficheiros|Bestanden)\s*:\s+"
+    r"(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)",
+    re.IGNORECASE,
+)
 # Bytes values may be plain integers or suffixed (e.g. "1.47 k", "3.2 m").
-_BYTES_RE = re.compile(r"Bytes\s*:\s+(\d[\d.,]*(?:\s*[kKmMgGtT])?)\s+(\d[\d.,]*(?:\s*[kKmMgGtT])?)")
-_TIMES_RE = re.compile(r"Times\s*:\s+([\d:.]+)")
-_SPEED_BYTES_RE = re.compile(r"Speed\s*:\s+([\d,]+)\s+Bytes/sec")
-_SPEED_MB_RE = re.compile(r"Speed\s*:\s+([\d.,]+)\s+MegaBytes/min")
-_ENDED_RE = re.compile(r"Ended\s*:\s+(.+)")
+# French uses "Octets", Italian uses "Byte" (no trailing s).
+_BYTES_RE = re.compile(
+    r"(?:Bytes|Octets|Byte)\s*:\s+"
+    r"(\d[\d.,]*(?:\s*[kKmMgGtT])?)\s+(\d[\d.,]*(?:\s*[kKmMgGtT])?)",
+    re.IGNORECASE,
+)
+_TIMES_RE = re.compile(
+    r"(?:Times|Durées|Zeiten|Tiempos|Durate|Intervalos)\s*:\s+([\d:.]+)",
+    re.IGNORECASE,
+)
+# Speed: two lines — bytes/sec (integer) then MB/min (decimal).
+# Unit variants for bytes/sec: Bytes/sec (en), Octets/s (fr), Bytes/Sek (de), Bytes/s (es/it/pt).
+# Unit variants for MB/min:    MegaBytes/min (en), Mégaoctets/min (fr), MB/Min (de), MB/min (es/it/pt).
+# Explicit unit alternation prevents the two speed lines from matching each other.
+_SPEED_BYTES_RE = re.compile(
+    r"(?:Speed|Vitesse|Geschw\.|Veloc\.)\s*:\s+([\d,]+)"
+    r"\s+(?:Bytes/sec|Octets/s|Bytes/Sek|Bytes/s|B/s)\.?",
+    re.IGNORECASE,
+)
+_SPEED_MB_RE = re.compile(
+    r"(?:Speed|Vitesse|Geschw\.|Veloc\.)\s*:\s+([\d.,]+)"
+    r"\s+(?:MegaBytes/min|M[eé]gaoctets/min|MB/[Mm]in|MBit/[Mm]in)\.?",
+    re.IGNORECASE,
+)
+_ENDED_RE = re.compile(
+    r"(?:Ended|Terminé|Ende|Finalizado|Fine|Término)\s*:\s+(.+)",
+    re.IGNORECASE,
+)
 
 
 # ---------------------------------------------------------------------------

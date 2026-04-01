@@ -273,6 +273,79 @@ def test_parse_summary_large_file_reads_tail(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Localization: non-English summary blocks
+# ---------------------------------------------------------------------------
+
+# French (fr-FR) summary block — robocopy on a French Windows installation.
+_SUMMARY_BLOCK_FR = """\
+{p}
+{p}               Total    Copié    Ignoré   NonCorr.    ÉCHEC   Extras
+{p}    Répertoires :         2         1         1         0         0         0
+{p}       Fichiers :         5         3         2         0         0         0
+{p}         Octets :   1.47 k       768       679         0         0         0
+{p}         Durées :   0:00:01   0:00:00                       0:00:00   0:00:00
+{p}        Vitesse :             7680000 Octets/s.
+{p}        Vitesse :              439.453 Mégaoctets/min.
+{p}        Terminé : lundi 1 janvier 2024 00:00:01
+{p}""".format(p=_PREFIX)
+
+# German (de-DE) summary block — robocopy on a German Windows installation.
+_SUMMARY_BLOCK_DE = """\
+{p}
+{p}               Gesamt   Kopiert  Übersp.  Ungleich    FEHLER  Extras
+{p}    Verzeichnisse :         2         1         1         0         0         0
+{p}          Dateien :         5         3         2         0         0         0
+{p}            Bytes :   1.47 k       768       679         0         0         0
+{p}           Zeiten :   0:00:01   0:00:00                       0:00:00   0:00:00
+{p}          Geschw. :             7680000 Bytes/Sek.
+{p}          Geschw. :              439.453 MB/Min.
+{p}             Ende : Montag, 1. Januar 2024 00:00:01
+{p}""".format(p=_PREFIX)
+
+
+def test_parse_summary_french_locale(tmp_path: Path) -> None:
+    """Summary block with French Windows UI labels is correctly parsed."""
+    log = _make_log(tmp_path, _full_log(_SUMMARY_BLOCK_FR))
+    summary = parse_summary_from_log(log)
+    assert summary is not None
+    assert summary.dirs_total == 2
+    assert summary.dirs_copied == 1
+    assert summary.dirs_skipped == 1
+    assert summary.dirs_failed == 0
+    assert summary.files_total == 5
+    assert summary.files_copied == 3
+    assert summary.files_skipped == 2
+    assert summary.files_failed == 0
+    assert summary.bytes_total == "1.47 k"
+    assert summary.bytes_copied == "768"
+    assert summary.duration == "0:00:01"
+    assert summary.speed_bytes_sec == "7680000"
+    assert summary.speed_mb_min == "439.453"
+    assert summary.ended is not None
+
+
+def test_parse_summary_german_locale(tmp_path: Path) -> None:
+    """Summary block with German Windows UI labels is correctly parsed."""
+    log = _make_log(tmp_path, _full_log(_SUMMARY_BLOCK_DE))
+    summary = parse_summary_from_log(log)
+    assert summary is not None
+    assert summary.dirs_total == 2
+    assert summary.dirs_copied == 1
+    assert summary.dirs_skipped == 1
+    assert summary.dirs_failed == 0
+    assert summary.files_total == 5
+    assert summary.files_copied == 3
+    assert summary.files_skipped == 2
+    assert summary.files_failed == 0
+    assert summary.bytes_total == "1.47 k"
+    assert summary.bytes_copied == "768"
+    assert summary.duration == "0:00:01"
+    assert summary.speed_bytes_sec == "7680000"
+    assert summary.speed_mb_min == "439.453"
+    assert summary.ended is not None
+
+
+# ---------------------------------------------------------------------------
 # RobocopySummary.format_card
 # ---------------------------------------------------------------------------
 
