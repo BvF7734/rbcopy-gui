@@ -945,10 +945,12 @@ class RobocopyGUI(tk.Tk):
 
         from rbcopy.gui.dnd import setup_entry_drop
 
-        # Register a subtle hover highlight style that appears while a drag
-        # is hovering over an entry to signal that the drop will be accepted.
+        # Register subtle hover highlight styles that appear while a drag is
+        # hovering over a widget to signal that the drop will be accepted.
+        # TCombobox needs its own variant so the dropdown arrow is not lost.
         style = ttk.Style(self)
         style.configure("DnDActive.TEntry", fieldbackground="#d0eeff")
+        style.configure("DnDActive.TCombobox", fieldbackground="#d0eeff")
 
         src_ok = setup_entry_drop(self._src_entry, self.src_var)
         dst_ok = setup_entry_drop(self._dst_entry, self.dst_var)

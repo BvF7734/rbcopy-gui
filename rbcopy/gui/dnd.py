@@ -92,8 +92,19 @@ def setup_entry_drop(entry: ttk.Entry, string_var: tk.StringVar) -> bool:
         logger.debug("tkinterdnd2 not installed; drag-and-drop skipped for this entry")
         return False
 
+    # Capture the widget's actual default style at registration time.  An
+    # explicit style overrides the class default; otherwise winfo_class()
+    # returns the correct ttk style name (e.g. "TCombobox" for a Combobox).
+    # Using the class name ensures the Combobox dropdown arrow is preserved
+    # when the drag style is removed.
+    try:
+        _default_style: str = str(entry.cget("style")) or entry.winfo_class()
+    except tk.TclError:
+        _default_style = _DND_DEFAULT_STYLE
+    _hover_style: str = f"DnDActive.{_default_style}"
+
     def _on_drop(event: Any) -> None:
-        _restore_style(entry)
+        _restore_style(entry, _default_style)
         # Respect the widget's disabled state so that locked fields (e.g. the
         # destination in "Properties Only" mode) cannot be overwritten via DnD.
         try:
@@ -107,10 +118,10 @@ def setup_entry_drop(entry: ttk.Entry, string_var: tk.StringVar) -> bool:
             logger.debug("Drag-and-drop: path set to %r", path)
 
     def _on_enter(event: Any) -> None:
-        _apply_hover_style(entry)
+        _apply_hover_style(entry, _hover_style)
 
     def _on_leave(event: Any) -> None:
-        _restore_style(entry)
+        _restore_style(entry, _default_style)
 
     try:
         entry.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
@@ -125,17 +136,17 @@ def setup_entry_drop(entry: ttk.Entry, string_var: tk.StringVar) -> bool:
     return True
 
 
-def _apply_hover_style(entry: ttk.Entry) -> None:
-    """Apply the DnD-hover style to *entry*, swallowing any :exc:`~tkinter.TclError`."""
+def _apply_hover_style(entry: ttk.Entry, hover_style: str = _DND_ACTIVE_STYLE) -> None:
+    """Apply *hover_style* to *entry*, swallowing any :exc:`~tkinter.TclError`."""
     try:
-        entry.configure(style=_DND_ACTIVE_STYLE)
+        entry.configure(style=hover_style)
     except tk.TclError:
         pass
 
 
-def _restore_style(entry: ttk.Entry) -> None:
-    """Restore the default ttk Entry style on *entry*, swallowing any :exc:`~tkinter.TclError`."""
+def _restore_style(entry: ttk.Entry, default_style: str = _DND_DEFAULT_STYLE) -> None:
+    """Restore *default_style* on *entry*, swallowing any :exc:`~tkinter.TclError`."""
     try:
-        entry.configure(style=_DND_DEFAULT_STYLE)
+        entry.configure(style=default_style)
     except tk.TclError:
         pass
