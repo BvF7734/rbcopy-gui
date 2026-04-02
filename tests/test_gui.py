@@ -2518,6 +2518,70 @@ def test_job_history_window_refresh_cancels_stale_worker(tmp_path: Path) -> None
     mock_tree.set.assert_not_called()
 
 
+def test_job_history_window_refresh_with_active_filter_parses_all_entries(tmp_path: Path) -> None:
+    """_refresh() with an active filter must still parse all log files, not just visible ones.
+
+    Regression: previously ``pending`` was built from ``_log_file_map`` (only
+    currently-visible rows), so entries hidden by the filter were never parsed.
+    Clearing the filter afterwards would reveal those rows with "…" placeholders
+    that no running worker could fill in.  The fix builds ``pending`` from
+    ``_all_entries`` so every file is always resolved.
+    """
+    from rbcopy.gui.job_history import _JobHistoryWindow
+
+    # Two log files with different dates.
+    (tmp_path / "robocopy_job_20240101_120000.log").write_text(
+        "2024-01-01 12:00:00 [INFO    ] rbcopy.gui: robocopy finished with exit code 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "robocopy_job_20240201_090000.log").write_text(
+        "2024-02-01 09:00:00 [INFO    ] rbcopy.gui: robocopy finished with exit code 0\n",
+        encoding="utf-8",
+    )
+
+    mock_tree = MagicMock()
+    mock_tree.get_children.return_value = []
+    _counter: list[int] = [0]
+
+    def _insert(*_args: Any, **kwargs: Any) -> str:
+        _counter[0] += 1
+        iid = kwargs.get("iid", str(_counter[0]))
+        return iid
+
+    mock_tree.insert.side_effect = _insert
+
+    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win._log_dir = tmp_path
+    win._log_file_map = {}
+    win._refresh_generation = 0
+    win._tree = mock_tree
+    win._content = MagicMock()
+    win._all_entries = []
+    win._resolved = {}
+    # Active keyword filter that matches only the January log.
+    win._filter_var = _StringVarStub("2024-01")
+    win._date_from_var = _StringVarStub()
+    win._date_to_var = _StringVarStub()
+    win._filter_count_var = _StringVarStub()
+    win._search_var = _StringVarStub()
+    win._search_count_var = _StringVarStub()
+    win._search_matches = []
+    win._search_current = -1
+    win.after = lambda ms, fn, *a: fn(*a)
+
+    with patch("threading.Thread", side_effect=_make_sync_thread):
+        win._refresh()
+
+    # Both entries must be in _resolved, even though only the January entry was
+    # visible while the filter was active.
+    assert len(win._resolved) == 2, (
+        "Background worker must resolve all entries, not just those visible through the filter"
+    )
+    resolved_statuses = {v[0] for v in win._resolved.values()}
+    assert "1" in resolved_statuses
+    assert "0" in resolved_statuses
+
+
 # ---------------------------------------------------------------------------
 # Job history – _parse_log_exit_code last-match tests
 # ---------------------------------------------------------------------------

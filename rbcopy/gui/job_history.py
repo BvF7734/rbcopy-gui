@@ -441,8 +441,11 @@ class _JobHistoryWindow(tk.Toplevel):
         # Apply the current filter (populates _tree and _log_file_map).
         self._apply_tree_filter()
 
-        # Collect all currently visible iids for the background parse worker.
-        pending: list[tuple[str, Path]] = [(iid, path) for iid, path in self._log_file_map.items()]
+        # Collect ALL entries (not just currently-visible ones) for the background
+        # parse worker.  Using _all_entries instead of _log_file_map ensures that
+        # entries hidden by an active filter still get their exit codes resolved, so
+        # that clearing the filter later shows the correct values rather than "…".
+        pending: list[tuple[str, Path]] = [(iid, path) for iid, _date, path in self._all_entries]
 
         def _parse_worker(items: list[tuple[str, Path]], generation: int) -> None:
             for iid, path in items:
