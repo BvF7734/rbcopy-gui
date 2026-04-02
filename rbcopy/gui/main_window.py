@@ -1678,6 +1678,9 @@ class RobocopyGUI(tk.Tk):
             self._current_proc = None
             done_event.set()
             self._proc_done_event = None
+            # Persist any newly recorded paths so they survive a crash that
+            # bypasses _exit() (flush() is a no-op when the store is clean).
+            self._path_history.flush()
             self.after(0, lambda: self._set_run_buttons_state("normal"))
             notify_job_complete(
                 title="RBCopy – Job Complete",

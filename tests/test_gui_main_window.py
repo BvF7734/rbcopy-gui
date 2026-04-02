@@ -471,6 +471,34 @@ def test_async_execute_does_not_duplicate_np_flag() -> None:
     assert captured_args[0].count("/NP") == 1
 
 
+def test_async_execute_flushes_path_history_in_finally() -> None:
+    """_async_execute must flush path history in its finally block after every job.
+
+    Flushing in the finally block (rather than only in _exit) ensures that
+    paths added by _run/_dry_run survive a crash that bypasses the normal
+    exit path.
+    """
+    fake_self = _make_fake_self()
+    mock_proc = make_mock_async_proc(returncode=0, output="", pid=42)
+
+    with patch("rbcopy.gui.main_window.asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
+        with patch("rbcopy.gui.main_window.notify_job_complete"):
+            asyncio.run(RobocopyGUI._async_execute(fake_self, ["robocopy", "C:/src", "C:/dst"]))
+
+    fake_self._path_history.flush.assert_called()
+
+
+def test_async_execute_flushes_path_history_even_on_exception() -> None:
+    """_async_execute must flush path history even when the subprocess raises."""
+    fake_self = _make_fake_self()
+
+    with patch("rbcopy.gui.main_window.asyncio.create_subprocess_exec", new=AsyncMock(side_effect=OSError("boom"))):
+        with patch("rbcopy.gui.main_window.notify_job_complete"):
+            asyncio.run(RobocopyGUI._async_execute(fake_self, ["robocopy", "C:/src", "C:/dst"]))
+
+    fake_self._path_history.flush.assert_called()
+
+
 # ---------------------------------------------------------------------------
 # RobocopyGUI output helper tests
 # ---------------------------------------------------------------------------
