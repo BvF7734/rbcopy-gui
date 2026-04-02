@@ -6,18 +6,11 @@ import tkinter as tk
 from collections.abc import Callable
 from logging import getLogger
 from tkinter import messagebox, ttk
-from typing import TypedDict
 
+from rbcopy.gui.types import _PackPadding
 from rbcopy.preferences import AppPreferences, PreferencesStore
 
 logger = getLogger("rbcopy.gui")
-
-
-class _PackPadding(TypedDict):
-    """Keyword arguments for ttk widget .pack() calls that add consistent spacing."""
-
-    padx: int
-    pady: int
 
 
 class _PreferencesDialog(tk.Toplevel):

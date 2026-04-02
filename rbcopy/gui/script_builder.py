@@ -6,18 +6,11 @@ import tkinter as tk
 from logging import getLogger
 from pathlib import Path, PureWindowsPath
 from tkinter import filedialog, messagebox, ttk
-from typing import TypedDict
 
 from rbcopy.builder import build_batch_script, build_powershell_script
+from rbcopy.gui.types import _PackPadding
 
 logger = getLogger("rbcopy.gui.script_builder")
-
-
-class _PackPadding(TypedDict):
-    """Keyword arguments for ttk widget .pack() calls that add consistent spacing."""
-
-    padx: int
-    pady: int
 
 
 class _ScriptExportDialog(tk.Toplevel):

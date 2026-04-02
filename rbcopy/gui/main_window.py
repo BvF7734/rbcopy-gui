@@ -38,7 +38,8 @@ from rbcopy.presets import CustomPreset, CustomPresetsStore
 from rbcopy.gui.bookmark_manager import _BookmarkManagerWindow
 from rbcopy.gui.job_history import _JobHistoryWindow
 from rbcopy.gui.preferences_dialog import _PreferencesDialog
-from rbcopy.gui.script_builder import _PackPadding, _ScriptExportDialog
+from rbcopy.gui.script_builder import _ScriptExportDialog
+from rbcopy.gui.types import _PackPadding
 from rbcopy.preferences import PreferencesStore
 from rbcopy.robocopy_parser import parse_summary_from_log
 
@@ -518,7 +519,38 @@ class RobocopyGUI(tk.Tk):
 
         self.bind_all("<MouseWheel>", _scroll_main)
 
-        # ── Source / Destination ──────────────────────────────────────
+        self._build_paths_section(content, padding)
+        self._build_action_buttons(content, padding)
+        self._build_output_console(content, padding, _scroll_main)
+
+        # ── Common options (always visible) ───────────────────────────────
+        self._build_flags(content, padding, include=_SIMPLE_FLAGS)
+        self._build_params(content, padding, include=_SIMPLE_PARAMS)
+
+        # ── Advanced section (hidden by default, revealed by toggle button) ──
+        self._advanced_frame = ttk.Frame(content)
+        # Do not pack here – frame starts hidden in simple mode.
+        # include=None → renders all flags/params not yet registered (the remainder).
+        self._build_flags(self._advanced_frame, padding)
+        self._build_params(self._advanced_frame, padding)
+
+        # Populate the preset combo now that _presets_store is available.
+        self._refresh_preset_combo()
+
+        # Add supersession traces: when a superseding flag changes, refresh widget states.
+        for sup_flag in SUPERSEDES:
+            if sup_flag in self._flag_vars:
+                self._flag_vars[sup_flag].trace_add("write", lambda *_: self._refresh_widget_states())
+
+        # Apply initial widget states (supersession rules may grey out redundant flags).
+        self._refresh_widget_states()
+
+    def _on_file_filter_toggle(self, *_args: object) -> None:
+        """Enable or disable the file filter entry to match the checkbox state."""
+        self._file_filter_entry.config(state="normal" if self._file_filter_enabled_var.get() else "disabled")
+
+    def _build_paths_section(self, content: ttk.Frame, padding: _PackPadding) -> None:
+        """Build the Paths LabelFrame with source, destination, file filter, and preset."""
         path_frame = ttk.LabelFrame(content, text="Paths", padding=6)
         path_frame.pack(fill="x", **padding)
         path_frame.columnconfigure(1, weight=1)
@@ -587,11 +619,7 @@ class RobocopyGUI(tk.Tk):
             "Blank lines and lines starting with '#' are ignored.\n"
             "Imported patterns are appended to any value already in the field.",
         )
-
-        def _toggle_file_filter_entry(*_args: object) -> None:
-            self._file_filter_entry.config(state="normal" if self._file_filter_enabled_var.get() else "disabled")
-
-        self._file_filter_enabled_var.trace_add("write", _toggle_file_filter_entry)
+        self._file_filter_enabled_var.trace_add("write", self._on_file_filter_toggle)
 
         # ── Preset selector ───────────────────────────────────────────
         ttk.Label(path_frame, text="Preset:").grid(row=3, column=0, sticky="w", pady=(4, 0))
@@ -604,7 +632,8 @@ class RobocopyGUI(tk.Tk):
         self._flag_cbs = {}
         self._param_cbs = {}
 
-        # ── Action buttons ────────────────────────────────────────────────
+    def _build_action_buttons(self, content: ttk.Frame, padding: _PackPadding) -> None:
+        """Build the row of action buttons (Preview, Dry Run, Run, Stop, etc.)."""
         btn_frame = ttk.Frame(content)
         btn_frame.pack(fill="x", **padding)
 
@@ -629,7 +658,20 @@ class RobocopyGUI(tk.Tk):
         self._btn_advanced.pack(side="right", padx=(0, 4))
         _ToolTip(self._btn_advanced, "Show or hide additional robocopy flags and parameters.")
 
-        # ── Output console ────────────────────────────────────────────
+    def _build_output_console(
+        self,
+        content: ttk.Frame,
+        padding: _PackPadding,
+        scroll_fn: Callable[..., None],
+    ) -> None:
+        """Build the scrolled output console and wire the mouse-wheel suspension.
+
+        Args:
+            content:   The parent frame to pack the console into.
+            padding:   Standard pack padding to apply.
+            scroll_fn: The main-canvas scroll callback, passed here so that the
+                       output widget can rebind it when the mouse leaves.
+        """
         out_frame = ttk.LabelFrame(content, text="Output", padding=4)
         out_frame.pack(fill="both", expand=True, **padding)
 
@@ -640,29 +682,7 @@ class RobocopyGUI(tk.Tk):
 
         # Suspend global scroll while mouse is over the output console
         self._output.bind("<Enter>", lambda e: self.unbind_all("<MouseWheel>"))
-        self._output.bind("<Leave>", lambda e: self.bind_all("<MouseWheel>", _scroll_main))
-
-        # ── Common options (always visible) ───────────────────────────────
-        self._build_flags(content, padding, include=_SIMPLE_FLAGS)
-        self._build_params(content, padding, include=_SIMPLE_PARAMS)
-
-        # ── Advanced section (hidden by default, revealed by toggle button) ──
-        self._advanced_frame = ttk.Frame(content)
-        # Do not pack here – frame starts hidden in simple mode.
-        # include=None → renders all flags/params not yet registered (the remainder).
-        self._build_flags(self._advanced_frame, padding)
-        self._build_params(self._advanced_frame, padding)
-
-        # Populate the preset combo now that _presets_store is available.
-        self._refresh_preset_combo()
-
-        # Add supersession traces: when a superseding flag changes, refresh widget states.
-        for sup_flag in SUPERSEDES:
-            if sup_flag in self._flag_vars:
-                self._flag_vars[sup_flag].trace_add("write", lambda *_: self._refresh_widget_states())
-
-        # Apply initial widget states (supersession rules may grey out redundant flags).
-        self._refresh_widget_states()
+        self._output.bind("<Leave>", lambda e: self.bind_all("<MouseWheel>", scroll_fn))
 
     def _build_menu(self) -> None:
         """Assemble the application menu bar."""
