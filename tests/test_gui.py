@@ -161,6 +161,13 @@ def test_launch_creates_gui_and_calls_mainloop(monkeypatch: pytest.MonkeyPatch) 
     mock_instance = MagicMock()
     mock_cls = MagicMock(return_value=mock_instance)
     monkeypatch.setattr(gui_module, "RobocopyGUI", mock_cls)
+    # Prevent writing to the real AppData log directory and deleting real log files.
+    monkeypatch.setattr(
+        gui_module,
+        "setup_logging",
+        MagicMock(return_value=logging.getLogger("rbcopy._test_launch_stub")),
+    )
+    monkeypatch.setattr(gui_module, "rotate_logs", MagicMock())
     gui_module.launch()
 
     mock_cls.assert_called_once()
@@ -173,6 +180,8 @@ def test_launch_uses_configured_log_dir(monkeypatch: pytest.MonkeyPatch) -> None
     from rbcopy.app_dirs import get_log_dir
 
     monkeypatch.setattr(gui_module, "RobocopyGUI", MagicMock(return_value=MagicMock()))
+    # Prevent rotate_logs from deleting real log files in the AppData directory.
+    monkeypatch.setattr(gui_module, "rotate_logs", MagicMock())
     captured: list[Path] = []
 
     dummy_logger = logging.getLogger("rbcopy._test_launch_stub")
