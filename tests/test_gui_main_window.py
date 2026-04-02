@@ -1537,7 +1537,12 @@ def test_apply_custom_preset_sets_source_and_destination() -> None:
 
 
 def test_apply_custom_preset_sets_flag_vars() -> None:
-    """_apply_custom_preset updates matching _flag_vars entries."""
+    """_apply_custom_preset updates matching _flag_vars entries.
+
+    The method first resets all flags to False and then applies the preset
+    values, so set() is called twice per flag: once to reset and once to
+    apply.  The final call must use the preset value.
+    """
     from rbcopy.presets import CustomPreset
 
     fake = _make_fake_self()
@@ -1550,11 +1555,18 @@ def test_apply_custom_preset_sets_flag_vars() -> None:
 
     RobocopyGUI._apply_custom_preset(fake, preset)
 
-    mir_var.set.assert_called_once_with(True)
+    # First call resets to False; second call applies the preset value True.
+    assert mir_var.set.call_count == 2
+    mir_var.set.assert_called_with(True)
 
 
 def test_apply_custom_preset_sets_param_vars() -> None:
-    """_apply_custom_preset updates matching _param_vars entries."""
+    """_apply_custom_preset updates matching _param_vars entries.
+
+    The method first resets all params to (False, placeholder) and then
+    applies the preset values, so each set() is called twice.  The final
+    call must use the preset value.
+    """
     from rbcopy.presets import CustomPreset
 
     fake = _make_fake_self()
@@ -1568,8 +1580,11 @@ def test_apply_custom_preset_sets_param_vars() -> None:
 
     RobocopyGUI._apply_custom_preset(fake, preset)
 
-    ev.set.assert_called_once_with(True)
-    vv.set.assert_called_once_with("5")
+    # First call resets to False/""; second call applies the preset value.
+    assert ev.set.call_count == 2
+    ev.set.assert_called_with(True)
+    assert vv.set.call_count == 2
+    vv.set.assert_called_with("5")
 
 
 def test_apply_custom_preset_calls_refresh_widget_states() -> None:

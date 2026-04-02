@@ -190,9 +190,14 @@ _DEFAULT_PARAMS: frozenset[str] = frozenset()
 
 # Flags that render other flags redundant when selected.
 # Key: superseding flag.  Value: flags that become redundant.
+# Only relationships where one flag is explicitly documented as a combination
+# of others are included here to keep the UI behaviour predictable.
 SUPERSEDES: dict[str, frozenset[str]] = {
+    # /MIR = /E + /PURGE (documented by robocopy).
     "/MIR": frozenset({"/E", "/PURGE"}),
+    # /MOVE moves files and directories; /MOV moves files only.
     "/MOVE": frozenset({"/MOV"}),
+    # /ZB tries restartable mode (/Z) then falls back to backup mode (/B).
     "/ZB": frozenset({"/Z", "/B"}),
 }
 

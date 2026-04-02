@@ -5,14 +5,18 @@ and programmatically toggle Tkinter variables to verify that the UI state
 rules enforced by ``_refresh_widget_states()`` operate correctly without
 requiring a human to click anything.
 
-Two rules are covered:
+Three rules are covered:
 
 1. **Properties Only preset** – toggling ``_props_only_var`` must lock the
    destination entry to ``PROPERTIES_ONLY_DST``, force the preset flags
    on, and disable (grey out) every forced checkbutton and param control.
 
-2. **Supersession** – checking ``/MIR`` must grey out the ``/E`` and
-   ``/PURGE`` checkbuttons because ``/MIR`` logically implies both.
+2. **Supersession** – checking a superseding flag (e.g. ``/MIR``) must grey
+   out the flags it logically replaces (e.g. ``/E`` and ``/PURGE``).
+
+3. **Preset clearing** – applying a new preset must reset all flags and
+   params not listed in that preset so that residual selections from a
+   previous preset or manual interaction do not bleed through.
 
 The entire module is skipped automatically on headless systems where
 Tkinter cannot open a display connection.
@@ -32,6 +36,7 @@ from rbcopy.builder import (
     SUPERSEDES,
 )
 from rbcopy.gui import RobocopyGUI
+from rbcopy.presets import CustomPreset
 
 
 @pytest.fixture()
@@ -170,4 +175,77 @@ def test_mir_supersession_does_not_disable_unrelated_flags(gui: RobocopyGUI) -> 
         if flag not in superseded_by_mir:
             assert not cb.instate(["disabled"]), (
                 f"Flag {flag!r} must not be disabled solely because /MIR is active (it is not superseded by /MIR)"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Preset clearing: applying a preset must reset flags/params not in the preset
+# ---------------------------------------------------------------------------
+
+
+def _make_preset(**kwargs: object) -> CustomPreset:
+    """Build a minimal CustomPreset for testing, forwarding any field overrides."""
+    defaults: dict[str, object] = dict(name="test", source="", destination="", flags={}, params={}, file_filter="")
+    defaults.update(kwargs)
+    return CustomPreset(**defaults)  # type: ignore[arg-type]
+
+
+def test_apply_preset_clears_flags_not_in_preset(gui: RobocopyGUI) -> None:
+    """Flags set manually (or by a previous preset) must be cleared when a new preset is applied."""
+    # Manually enable a flag that the new preset does not mention.
+    gui._flag_vars["/J"].set(True)
+    gui._flag_vars["/NP"].set(True)
+
+    # Apply a preset that only enables /E and says nothing about /J or /NP.
+    gui._apply_custom_preset(_make_preset(name="only-e", flags={"/E": True}))
+
+    assert gui._flag_vars["/J"].get() is False, "/J must be reset to False by a preset that does not include it"
+    assert gui._flag_vars["/NP"].get() is False, "/NP must be reset to False by a preset that does not include it"
+    assert gui._flag_vars["/E"].get() is True, "/E must remain enabled as listed in the preset"
+
+
+def test_apply_preset_clears_params_not_in_preset(gui: RobocopyGUI) -> None:
+    """Param checkboxes enabled manually must be cleared when a new preset is applied."""
+    # Manually enable params that the new preset does not mention.
+    ev_r, _vv_r, _ = gui._param_vars["/R"]
+    ev_r.set(True)
+    ev_mon, _vv_mon, _ = gui._param_vars["/MON"]
+    ev_mon.set(True)
+
+    # Apply a preset that only sets /MAXAGE and says nothing about /R or /MON.
+    gui._apply_custom_preset(_make_preset(name="maxage-only", params={"/MAXAGE": (True, "7")}))
+
+    ev_r2, _, _ = gui._param_vars["/R"]
+    assert ev_r2.get() is False, "/R must be reset to False by a preset that does not include it"
+    ev_mon2, _, _ = gui._param_vars["/MON"]
+    assert ev_mon2.get() is False, "/MON must be reset to False by a preset that does not include it"
+    ev_maxage, vv_maxage, _ = gui._param_vars["/MAXAGE"]
+    assert ev_maxage.get() is True, "/MAXAGE must be enabled as listed in the preset"
+    assert vv_maxage.get() == "7", "/MAXAGE value must be set to the preset value"
+
+
+def test_apply_second_preset_does_not_inherit_first_preset_flags(gui: RobocopyGUI) -> None:
+    """Flags enabled by one preset must not carry over when a different preset is applied."""
+    # Apply a first preset that enables several flags.
+    gui._apply_custom_preset(_make_preset(name="first", flags={"/E": True, "/Z": True, "/J": True, "/NP": True}))
+    # Apply a second preset that only uses /E and /MAXAGE.
+    gui._apply_custom_preset(_make_preset(name="second", flags={"/E": True}, params={"/MAXAGE": (True, "7")}))
+
+    assert gui._flag_vars["/Z"].get() is False, "/Z from the first preset must be cleared by the second preset"
+    assert gui._flag_vars["/J"].get() is False, "/J from the first preset must be cleared by the second preset"
+    assert gui._flag_vars["/NP"].get() is False, "/NP from the first preset must be cleared by the second preset"
+    assert gui._flag_vars["/E"].get() is True, "/E is also in the second preset and must remain enabled"
+
+
+def test_apply_preset_preserves_forced_flags_when_props_only_active(gui: RobocopyGUI) -> None:
+    """Forced Properties Only flags must not be cleared or overridden when applying a preset."""
+    gui._props_only_var.set(True)
+
+    # Apply a preset that explicitly tries to disable a forced flag.
+    gui._apply_custom_preset(_make_preset(name="try-disable-l", flags={"/L": False}))
+
+    for flag in PROPERTIES_ONLY_FLAGS:
+        if flag in gui._flag_vars:
+            assert gui._flag_vars[flag].get() is True, (
+                f"Forced flag {flag!r} must remain True after preset application when Properties Only is active"
             )

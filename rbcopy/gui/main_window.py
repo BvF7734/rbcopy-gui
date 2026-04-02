@@ -1289,6 +1289,10 @@ class RobocopyGUI(tk.Tk):
     def _apply_custom_preset(self, preset: CustomPreset) -> None:
         """Apply *preset* to the GUI, restoring all saved selections.
 
+        All flags and params not explicitly listed in the preset are reset to
+        their defaults first so that no leftover values from a previous preset
+        or manual selection bleed through.
+
         When "Properties Only" mode is active, forced values (destination, forced
         flags, and forced params) are left untouched so the preset does not
         silently break the Properties Only invariants.
@@ -1297,18 +1301,37 @@ class RobocopyGUI(tk.Tk):
             preset: The :class:`~rbcopy.presets.CustomPreset` to apply.
         """
         props_only = self._props_only_var.get()
+        # Build a flag-to-placeholder map once for O(1) lookup inside the loop.
+        param_defaults: dict[str, str] = {flag: ph for flag, _lbl, ph in PARAM_OPTIONS}
         self._is_applying_preset = True
         try:
             self.src_var.set(preset.source)
             # Do not overwrite the forced destination while Properties Only is active.
             if not props_only:
                 self.dst_var.set(preset.destination)
+
+            # Reset all flags and params to their defaults before applying preset
+            # values so leftovers from prior presets or manual selections are cleared.
+            for flag, var in self._flag_vars.items():
+                # Keep forced-on flags locked when Properties Only is active.
+                if props_only and flag in PROPERTIES_ONLY_FLAGS:
+                    continue
+                var.set(False)
+            for flag, (ev, vv, _entry) in self._param_vars.items():
+                # Keep forced params locked when Properties Only is active.
+                if props_only and flag in PROPERTIES_ONLY_PARAMS:
+                    continue
+                ev.set(False)
+                vv.set(param_defaults.get(flag, ""))
+
+            # Apply the preset's explicit flag values.
             for flag, enabled in preset.flags.items():
                 if flag in self._flag_vars:
                     # Do not override forced-on flags while Properties Only is active.
                     if props_only and flag in PROPERTIES_ONLY_FLAGS:
                         continue
                     self._flag_vars[flag].set(enabled)
+            # Apply the preset's explicit param values.
             for flag, (enabled, value) in preset.params.items():
                 if flag in self._param_vars:
                     # Do not override forced params while Properties Only is active.
