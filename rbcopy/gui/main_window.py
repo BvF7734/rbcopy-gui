@@ -117,7 +117,7 @@ def _confirm_destructive_operation(
         return True
 
     # Rule 2 – destination exists but is completely empty.
-    # next() with a default is O(1) and avoids materialising the full listing.
+    # next() with a default is O(1) — avoids stat-ing the full directory.
     first_child: Path | None = next(dst_path.iterdir(), None)
     if first_child is None:
         return True
@@ -130,18 +130,12 @@ def _confirm_destructive_operation(
 
     flags_display: str = " and ".join(active_destructive)
 
-    # Count items for a more informative warning (cap at a safe limit so we
-    # never freeze the UI listing a directory with millions of entries).
-    _MAX_COUNT: int = 1_000
-    item_count: int = min(
-        sum(1 for _ in dst_path.iterdir()),
-        _MAX_COUNT,
-    )
-    count_label: str = f"at least {_MAX_COUNT:,}" if item_count >= _MAX_COUNT else str(item_count)
-
+    # We already know the directory is non-empty (first_child check above).
+    # Avoid iterating further — a full scan would block the main Tk thread,
+    # which is especially painful on network shares or slow drives.
     warning_message: str = (
         f"⚠  DESTRUCTIVE OPERATION WARNING\n\n"
-        f"The destination directory already contains {count_label} item(s):\n"
+        f"The destination directory already contains existing files and/or folders:\n"
         f"  {cleaned}\n\n"
         f"You have enabled {flags_display}, which means ALL files and folders "
         f"in the destination that do not exist in the source WILL BE "
