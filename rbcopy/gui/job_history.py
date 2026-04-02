@@ -98,6 +98,11 @@ class _JobHistoryWindow(tk.Toplevel):
         # the directory.  Each entry is (iid, date_display, path).
         self._all_entries: list[tuple[str, str, Path]] = []
 
+        # Cache of already-resolved (code_display, status) values keyed by iid.
+        # Populated by the background parse worker; consulted by _apply_tree_filter
+        # so that re-filtering after the worker finishes does not revert cells to "…".
+        self._resolved: dict[str, tuple[str, str]] = {}
+
         self._build_ui()
         self._refresh()
 
@@ -291,8 +296,11 @@ class _JobHistoryWindow(tk.Toplevel):
 
         # Re-insert matching rows, re-using the original iids so that the
         # background exit-code update workers (which key on iid) still work.
+        # Use already-resolved values when available so that re-filtering after
+        # the worker completes does not revert cells to placeholder "…".
         for iid, date_display, path in matched:
-            new_iid = self._tree.insert("", "end", iid=iid, values=(date_display, "…", "…"))
+            code_display, status = self._resolved.get(iid, ("…", "…"))
+            new_iid = self._tree.insert("", "end", iid=iid, values=(date_display, code_display, status))
             self._log_file_map[new_iid] = path
 
         total = len(self._all_entries)
@@ -401,6 +409,7 @@ class _JobHistoryWindow(tk.Toplevel):
 
         self._all_entries = []
         self._log_file_map.clear()
+        self._resolved.clear()
         self._set_content("")
         self._clear_search()
 
@@ -451,6 +460,9 @@ class _JobHistoryWindow(tk.Toplevel):
                 ) -> None:
                     if self._refresh_generation != g:
                         return
+                    # Persist resolved values so _apply_tree_filter can use them
+                    # if the user re-filters after the worker has already run.
+                    self._resolved[i] = (c, s)
                     try:
                         self._tree.set(i, self._CODE_COL, c)
                         self._tree.set(i, self._STATUS_COL, s)

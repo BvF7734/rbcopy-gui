@@ -261,11 +261,7 @@
       "/E": true,
       "/XO": true
     },
-    "params": {
-      "FILES": [
-        true,
-        "*.jpg *.png *.mp4 *.mov"
-      ]
-    }
+    "params": {},
+    "file_filter": "*.jpg *.png *.mp4 *.mov"
   }
 ]

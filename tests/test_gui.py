@@ -2310,6 +2310,7 @@ def test_job_history_window_refresh_empty_dir(tmp_path: Path) -> None:
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -2358,6 +2359,7 @@ def test_job_history_window_refresh_populates_rows(tmp_path: Path) -> None:
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -2394,6 +2396,7 @@ def test_job_history_window_refresh_shows_exit_code(tmp_path: Path) -> None:
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -2432,6 +2435,7 @@ def test_job_history_window_refresh_unknown_code_for_in_progress(tmp_path: Path)
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -2475,6 +2479,7 @@ def test_job_history_window_refresh_cancels_stale_worker(tmp_path: Path) -> None
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -2625,6 +2630,7 @@ def test_job_history_window_on_select_small_file_shows_full_content(tmp_path: Pa
     win._log_file_map = {"item1": log}
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -2662,6 +2668,7 @@ def test_job_history_window_on_select_large_file_shows_tail(tmp_path: Path) -> N
     win._log_file_map = {"item1": log}
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -2693,6 +2700,7 @@ def test_job_history_window_open_externally_no_selection_is_noop(tmp_path: Path)
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -2721,6 +2729,7 @@ def test_job_history_window_open_externally_calls_platform_command(tmp_path: Pat
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -2885,6 +2894,7 @@ def test_job_history_window_open_externally_uses_startfile_on_windows(tmp_path: 
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -2922,6 +2932,7 @@ def test_job_history_window_open_externally_uses_open_on_macos(tmp_path: Path) -
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -2959,6 +2970,7 @@ def test_job_history_window_export_log_no_selection_is_noop() -> None:
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -2988,6 +3000,7 @@ def test_job_history_window_export_log_cancelled_dialog_is_noop(tmp_path: Path) 
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3021,6 +3034,7 @@ def test_job_history_window_export_log_copies_file(tmp_path: Path) -> None:
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3053,6 +3067,7 @@ def test_job_history_window_export_log_shows_error_on_failure(tmp_path: Path) ->
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3087,6 +3102,7 @@ def test_job_history_window_on_select_no_selection_is_noop() -> None:
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3116,6 +3132,7 @@ def test_job_history_window_on_select_path_not_in_map_is_noop() -> None:
     win._log_file_map = {}  # empty – no mapping for the selected item
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3144,6 +3161,7 @@ def test_job_history_window_on_select_shows_error_on_read_failure(tmp_path: Path
     win._log_file_map = {"item1": nonexistent}
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3174,6 +3192,7 @@ def test_job_history_window_open_externally_path_not_in_map_is_noop() -> None:
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3206,6 +3225,7 @@ def test_job_history_window_open_externally_shows_error_on_oserror(tmp_path: Pat
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3245,6 +3265,7 @@ def test_job_history_window_export_log_path_not_in_map_is_noop() -> None:
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3281,6 +3302,7 @@ def test_job_history_window_refresh_deletes_existing_rows(tmp_path: Path) -> Non
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3313,6 +3335,7 @@ def test_job_history_window_refresh_handles_invalid_date_in_filename(tmp_path: P
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3358,6 +3381,7 @@ def test_job_history_window_refresh_parse_worker_aborts_on_changed_generation(tm
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3408,6 +3432,7 @@ def test_job_history_window_update_callback_suppresses_tclerror(tmp_path: Path) 
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3440,6 +3465,7 @@ def test_job_history_window_parse_worker_aborts_on_tclerror_in_after(tmp_path: P
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3458,13 +3484,9 @@ def test_job_history_window_parse_worker_aborts_on_tclerror_in_after(tmp_path: P
     with patch("threading.Thread", side_effect=_make_sync_thread):
         win._refresh()
 
-    # ---------------------------------------------------------------------------
-    # Filter tests — _apply_tree_filter
-    # ---------------------------------------------------------------------------
 
-    def test_job_history_filter_hides_non_matching_rows(tmp_path: Path) -> None:
-        """Rows whose date string does not contain the keyword are hidden."""
-
+def test_job_history_filter_hides_non_matching_rows(tmp_path: Path) -> None:
+    """Rows whose date string does not contain the keyword are hidden."""
     from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240601_120000.log").write_text("x", encoding="utf-8")
@@ -3488,6 +3510,7 @@ def test_job_history_window_parse_worker_aborts_on_tclerror_in_after(tmp_path: P
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3537,6 +3560,7 @@ def test_job_history_filter_shows_all_when_empty(tmp_path: Path) -> None:
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3578,6 +3602,7 @@ def test_job_history_filter_date_from_excludes_earlier(tmp_path: Path) -> None:
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3627,6 +3652,7 @@ def test_job_history_filter_date_to_excludes_later(tmp_path: Path) -> None:
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3675,6 +3701,7 @@ def test_job_history_filter_invalid_date_is_ignored(tmp_path: Path) -> None:
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3722,6 +3749,7 @@ def test_job_history_filter_no_matches_inserts_placeholder(tmp_path: Path) -> No
     win._tree = mock_tree
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()
@@ -3758,6 +3786,7 @@ def test_job_history_clear_filter_resets_all_vars(tmp_path: Path) -> None:
     win._tree.get_children.return_value = []
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub(value="june")
     win._date_from_var = _StringVarStub(value="2024-01-01")
     win._date_to_var = _StringVarStub(value="2024-12-31")
@@ -3786,6 +3815,7 @@ def _make_search_win() -> Any:
     win._search_count_var = _StringVarStub()
     win._content = MagicMock()
     win._all_entries = []
+    win._resolved = {}
     win._filter_var = _StringVarStub()
     win._date_from_var = _StringVarStub()
     win._date_to_var = _StringVarStub()

@@ -516,6 +516,17 @@ def test_load_bundled_presets_returns_list() -> None:
     assert all(isinstance(p, CustomPreset) for p in result)
 
 
+def test_bundled_sync_photos_preset_uses_file_filter() -> None:
+    """The 'Sync Photos and Videos Only' preset must populate file_filter, not params."""
+    from rbcopy.presets import _load_bundled_presets
+
+    result = _load_bundled_presets()
+    preset = next((p for p in result if p.name == "Sync Photos and Videos Only"), None)
+    assert preset is not None, "'Sync Photos and Videos Only' preset not found in bundled presets"
+    assert preset.file_filter == "*.jpg *.png *.mp4 *.mov"
+    assert "FILES" not in preset.params
+
+
 def test_load_bundled_presets_returns_empty_on_bad_json(tmp_path: Path) -> None:
     """_load_bundled_presets must return [] when the resource cannot be parsed."""
     mock_file = MagicMock()
