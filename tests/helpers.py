@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from typing import AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock
 import queue
 import threading
-from typing import Any
+from typing import Any, AsyncGenerator
+from unittest.mock import AsyncMock, MagicMock
 
 
 
