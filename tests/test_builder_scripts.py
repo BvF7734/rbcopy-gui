@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from unittest.mock import patch
 
-import pytest
 
 from rbcopy.builder import (
     _apply_extended_path_prefix,
@@ -225,5 +223,3 @@ def test_build_powershell_script_escapes_internal_single_quotes() -> None:
 def test_build_powershell_script_returns_string() -> None:
     result = build_powershell_script(["robocopy", "C:/src", "C:/dst"])
     assert isinstance(result, str)
-
-

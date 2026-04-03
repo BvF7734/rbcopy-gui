@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from tests.helpers import make_sync_thread as _make_sync_thread, StringVarStub as _StringVarStub
+
 
 def test_job_history_filter_hides_non_matching_rows(tmp_path: Path) -> None:
     """Rows whose date string does not contain the keyword are hidden."""

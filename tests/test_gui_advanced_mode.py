@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from rbcopy.gui import RobocopyGUI
 from tests.helpers import make_fake_self as _make_fake_self
@@ -151,7 +150,6 @@ def test_open_job_history_opens_window_when_log_dir_exists(tmp_path: Path) -> No
         RobocopyGUI._open_job_history(fake)
 
     mock_window_cls.assert_called_once_with(fake, tmp_path)
-
 
 
 # ---------------------------------------------------------------------------
@@ -331,5 +329,3 @@ def test_get_preset_description_map_omits_presets_without_description() -> None:
     result = RobocopyGUI._get_preset_description_map(fake)
 
     assert "No Desc" not in result
-
-

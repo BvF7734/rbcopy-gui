@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from unittest.mock import patch
 
@@ -21,7 +20,6 @@ from rbcopy.builder import (
 
 def test_exit_code_label_returns_string() -> None:
     """exit_code_label always returns a str for any input."""
-    from rbcopy.builder import exit_code_label
 
     assert isinstance(exit_code_label(0), str)
     assert isinstance(exit_code_label(-1), str)
@@ -30,7 +28,6 @@ def test_exit_code_label_returns_string() -> None:
 
 def test_exit_code_label_minus_one() -> None:
     """exit_code_label describes -1 as an unknown error."""
-    from rbcopy.builder import exit_code_label
 
     assert "Unknown error" in exit_code_label(-1)
     assert "log" in exit_code_label(-1).lower()
@@ -38,21 +35,18 @@ def test_exit_code_label_minus_one() -> None:
 
 def test_exit_code_label_zero() -> None:
     """exit_code_label describes 0 as nothing to do."""
-    from rbcopy.builder import exit_code_label
 
     assert "Nothing to do" in exit_code_label(0)
 
 
 def test_exit_code_label_one() -> None:
     """exit_code_label describes 1 as files copied successfully."""
-    from rbcopy.builder import exit_code_label
 
     assert "Files copied successfully" in exit_code_label(1)
 
 
 def test_exit_code_label_two() -> None:
     """exit_code_label describes 2 as extra files at destination."""
-    from rbcopy.builder import exit_code_label
 
     label = exit_code_label(2)
     assert "Extra files" in label
@@ -61,7 +55,6 @@ def test_exit_code_label_two() -> None:
 
 def test_exit_code_label_three() -> None:
     """exit_code_label describes 3 as files copied with extra files at destination."""
-    from rbcopy.builder import exit_code_label
 
     label = exit_code_label(3)
     assert "Files copied" in label
@@ -70,14 +63,12 @@ def test_exit_code_label_three() -> None:
 
 def test_exit_code_label_four() -> None:
     """exit_code_label describes 4 as mismatched files."""
-    from rbcopy.builder import exit_code_label
 
     assert "Mismatched" in exit_code_label(4)
 
 
 def test_exit_code_label_five() -> None:
     """exit_code_label describes 5 as files copied with mismatched files."""
-    from rbcopy.builder import exit_code_label
 
     label = exit_code_label(5)
     assert "Files copied" in label
@@ -87,7 +78,6 @@ def test_exit_code_label_five() -> None:
 
 def test_exit_code_label_six() -> None:
     """exit_code_label describes 6 as extra and mismatched files."""
-    from rbcopy.builder import exit_code_label
 
     label = exit_code_label(6)
     assert "mismatched" in label.lower()
@@ -96,7 +86,6 @@ def test_exit_code_label_six() -> None:
 
 def test_exit_code_label_seven() -> None:
     """exit_code_label describes 7 as files copied with multiple warnings."""
-    from rbcopy.builder import exit_code_label
 
     label = exit_code_label(7)
     assert "Files copied" in label
@@ -105,7 +94,6 @@ def test_exit_code_label_seven() -> None:
 
 def test_exit_code_label_eight() -> None:
     """exit_code_label describes 8 as copy failures."""
-    from rbcopy.builder import exit_code_label
 
     label = exit_code_label(8)
     assert "Copy failures" in label
@@ -114,7 +102,6 @@ def test_exit_code_label_eight() -> None:
 
 def test_exit_code_label_sixteen() -> None:
     """exit_code_label describes 16 as a fatal error."""
-    from rbcopy.builder import exit_code_label
 
     label = exit_code_label(16)
     assert "Fatal error" in label
@@ -123,7 +110,6 @@ def test_exit_code_label_sixteen() -> None:
 
 def test_exit_code_label_unknown_combination_falls_back_gracefully() -> None:
     """exit_code_label returns a composed fallback for unusual bit combinations."""
-    from rbcopy.builder import exit_code_label
 
     # 9 = 8 + 1 (copy failures + files copied) — not in the explicit lookup table
     label = exit_code_label(9)
@@ -133,7 +119,6 @@ def test_exit_code_label_unknown_combination_falls_back_gracefully() -> None:
 
 def test_exit_code_label_failure_bits_include_check_log() -> None:
     """exit_code_label includes 'Check the log' for any code with bit 8 or 16 set."""
-    from rbcopy.builder import exit_code_label
 
     # Use an unusual combination not in the explicit table to exercise the fallback.
     # 24 = 8 + 16
@@ -143,7 +128,6 @@ def test_exit_code_label_failure_bits_include_check_log() -> None:
 
 def test_exit_code_label_no_check_log_for_low_codes() -> None:
     """exit_code_label does not append 'Check the log' for codes below 8."""
-    from rbcopy.builder import exit_code_label
 
     # All standard low codes 0-7 should not contain "check the log" except
     # where we have explicitly added it (5, 6, 7 do contain it by design).

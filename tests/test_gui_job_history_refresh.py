@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from tests.helpers import make_sync_thread as _make_sync_thread, StringVarStub as _StringVarStub
+
 
 def test_job_history_window_refresh_empty_dir(tmp_path: Path) -> None:
     """_JobHistoryWindow._refresh shows a placeholder row when no log files exist."""
@@ -483,4 +483,3 @@ def test_job_history_window_parse_worker_aborts_on_tclerror_in_after(tmp_path: P
     # Must complete without raising TclError.
     with patch("threading.Thread", side_effect=_make_sync_thread):
         win._refresh()
-

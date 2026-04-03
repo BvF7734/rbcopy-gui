@@ -5,11 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from rbcopy.gui import RobocopyGUI
 from tests.helpers import make_fake_self as _make_fake_self
-
 
 
 def _make_import_vars() -> tuple[MagicMock, MagicMock, MagicMock]:
@@ -308,5 +306,3 @@ def test_import_file_filter_handles_unicode_decode_error(tmp_path: Path) -> None
 
     mock_err.assert_called_once()
     fake._file_filter_var.set.assert_not_called()
-
-

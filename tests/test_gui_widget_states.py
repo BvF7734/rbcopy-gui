@@ -5,9 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 from rbcopy.gui import RobocopyGUI
 from tests.helpers import make_fake_self as _make_fake_self, make_mock_async_proc

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 import tkinter as tk
 from pathlib import Path
 from typing import Any
@@ -236,6 +235,7 @@ def test_on_save_rejects_subdirectory_in_name(tmp_path: Path) -> None:
     assert not any(tmp_path.iterdir()), "No file should be written for a name with a subdirectory component"
     assert fake._saved is False
 
+
 # ---------------------------------------------------------------------------
 # Script Builder – _script_builder_var initialisation
 # ---------------------------------------------------------------------------
@@ -347,5 +347,3 @@ def test_export_script_opens_dialog() -> None:
         RobocopyGUI._export_script(fake_self, cmd)
 
     mock_dialog.assert_called_once_with(fake_self, cmd)
-
-

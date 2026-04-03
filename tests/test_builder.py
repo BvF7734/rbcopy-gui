@@ -572,5 +572,3 @@ def test_validate_command_warns_for_redundant_flag_and_empty_param_simultaneousl
     assert any("/E" in w or "redundant" in w for w in result.warnings)
     assert any("/R" in w for w in result.warnings)
     assert len(result.warnings) >= 2
-
-

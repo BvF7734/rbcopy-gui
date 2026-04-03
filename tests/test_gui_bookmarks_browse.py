@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from rbcopy.gui import RobocopyGUI
 from tests.helpers import make_fake_self as _make_fake_self
@@ -410,5 +409,3 @@ def test_clear_bookmarks_rebuilds_menu() -> None:
     RobocopyGUI._clear_bookmarks(fake)
 
     fake._rebuild_bookmarks_menu.assert_called_once()
-
-

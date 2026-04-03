@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import queue
-import threading
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-import pytest
 
 from rbcopy.gui import RobocopyGUI
 from rbcopy.gui.main_window import _MAX_LINES_PER_POLL, _OUTPUT_QUEUE_MAXSIZE
@@ -315,5 +312,3 @@ def test_clear_output_configures_widget() -> None:
     fake_self._output.config.assert_any_call(state="normal")
     fake_self._output.delete.assert_called_once_with("1.0", "end")
     fake_self._output.config.assert_called_with(state="disabled")
-
-

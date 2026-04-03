@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from tests.helpers import StringVarStub as _StringVarStub
 
@@ -184,5 +183,3 @@ def test_job_history_window_on_select_large_file_shows_tail(tmp_path: Path) -> N
     inserted = "".join(str(c.args[-1]) for c in calls)
     assert "showing last" in inserted
     assert "LAST_LINE_SENTINEL" in inserted
-
-

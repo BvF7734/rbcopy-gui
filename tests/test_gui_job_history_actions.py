@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -476,5 +475,3 @@ def test_job_history_window_export_log_path_not_in_map_is_noop() -> None:
         win._export_log()
 
     mock_dialog.assert_not_called()
-
-

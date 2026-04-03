@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 
-import pytest
 
 from rbcopy.gui import RobocopyGUI
 from tests.helpers import make_fake_self as _make_fake_self
@@ -651,5 +650,3 @@ def test_rebuild_custom_menu_no_info_item_when_description_empty() -> None:
     for call in sub_mock.add_command.call_args_list:
         label = call.kwargs.get("label", "")
         assert "\u2139" not in label, f"Unexpected info item found: {label!r}"
-
-

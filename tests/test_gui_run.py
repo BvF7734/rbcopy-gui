@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import threading
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from rbcopy.gui import RobocopyGUI
 from tests.helpers import make_fake_self as _make_fake_self
@@ -493,5 +490,3 @@ def test_dry_run_starts_background_thread() -> None:
         daemon=True,
     )
     mock_thread.start.assert_called_once()
-
-

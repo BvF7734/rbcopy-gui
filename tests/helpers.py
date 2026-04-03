@@ -8,7 +8,6 @@ from typing import Any, AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
 
-
 def make_mock_async_proc(
     returncode: int = 0,
     output: str = "",
