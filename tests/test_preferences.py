@@ -529,8 +529,6 @@ def test_on_save_stops_after_first_invalid_field(tmp_path: Path) -> None:
 
 def _make_fake_dialog_with_callbacks(tmp_path: Path) -> MagicMock:
     """Return a fake _PreferencesDialog with reset callbacks attached."""
-    import types
-
     from rbcopy.gui.preferences_dialog import _PreferencesDialog
 
     fake: MagicMock = MagicMock()
@@ -581,8 +579,6 @@ def test_on_reset_history_does_not_clear_when_cancelled(tmp_path: Path) -> None:
 
 def test_on_reset_history_noop_when_callback_is_none() -> None:
     """_on_reset_history is a no-op when _on_clear_history is None."""
-    import types
-
     from rbcopy.gui.preferences_dialog import _PreferencesDialog
 
     fake: MagicMock = MagicMock()
@@ -631,8 +627,6 @@ def test_on_reset_bookmarks_does_not_clear_when_cancelled(tmp_path: Path) -> Non
 
 def test_on_reset_bookmarks_noop_when_callback_is_none() -> None:
     """_on_reset_bookmarks is a no-op when _on_clear_bookmarks is None."""
-    import types
-
     from rbcopy.gui.preferences_dialog import _PreferencesDialog
 
     fake: MagicMock = MagicMock()

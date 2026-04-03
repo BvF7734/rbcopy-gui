@@ -9,7 +9,7 @@ import threading
 import tkinter as tk
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
@@ -3376,8 +3376,8 @@ def _make_fake_self_for_props_only() -> MagicMock:
     fake = _make_fake_self()
     fake._is_applying_preset = False
     fake._saved_dst = ""
-    fake._saved_flags: dict = {}
-    fake._saved_params: dict = {}
+    fake._saved_flags: Dict[str, Any] = {}
+    fake._saved_params: Dict[str, Any] = {}
 
     # Use real dicts so iteration and item assignment work correctly.
     fake._flag_vars = {}
