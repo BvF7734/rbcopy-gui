@@ -58,7 +58,10 @@ def launch() -> None:
     try:
         import ctypes  # noqa: PLC0415
 
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        # Use getattr to avoid a mypy attr-defined error on non-Windows platforms.
+        windll = getattr(ctypes, "windll", None)
+        if windll is not None:
+            windll.shcore.SetProcessDpiAwareness(1)
     except (AttributeError, OSError):
         logger.debug("SetProcessDpiAwareness not available; skipping High-DPI setup", exc_info=True)
 

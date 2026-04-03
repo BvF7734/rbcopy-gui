@@ -69,8 +69,10 @@ def _check_admin_privileges(result: PreflightResult) -> None:
     # Import ctypes here because ctypes.windll is only available on Windows.
     import ctypes  # noqa: PLC0415
 
+    # Use getattr to avoid a mypy attr-defined error on non-Windows platforms.
+    windll = getattr(ctypes, "windll", None)
     try:
-        is_admin: bool = bool(ctypes.windll.shell32.IsUserAnAdmin())
+        is_admin: bool = bool(windll.shell32.IsUserAnAdmin()) if windll is not None else False
     except AttributeError:
         # Fallback: some stripped Windows environments may not expose this API.
         is_admin = False
