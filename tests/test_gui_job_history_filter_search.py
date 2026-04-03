@@ -9,10 +9,11 @@ from unittest.mock import MagicMock, patch
 
 from tests.helpers import make_sync_thread as _make_sync_thread, StringVarStub as _StringVarStub
 
+from rbcopy.gui.job_history import _JobHistoryWindow
+
 
 def test_job_history_filter_hides_non_matching_rows(tmp_path: Path) -> None:
     """Rows whose date string does not contain the keyword are hidden."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240601_120000.log").write_text("x", encoding="utf-8")
     (tmp_path / "robocopy_job_20240715_090000.log").write_text("x", encoding="utf-8")
@@ -63,7 +64,6 @@ def test_job_history_filter_hides_non_matching_rows(tmp_path: Path) -> None:
 
 def test_job_history_filter_shows_all_when_empty(tmp_path: Path) -> None:
     """Clearing the filter shows all entries."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240601_120000.log").write_text("x", encoding="utf-8")
     (tmp_path / "robocopy_job_20240715_090000.log").write_text("x", encoding="utf-8")
@@ -104,7 +104,6 @@ def test_job_history_filter_shows_all_when_empty(tmp_path: Path) -> None:
 
 def test_job_history_filter_date_from_excludes_earlier(tmp_path: Path) -> None:
     """Entries before the From date are excluded."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240101_120000.log").write_text("x", encoding="utf-8")
     (tmp_path / "robocopy_job_20240601_120000.log").write_text("x", encoding="utf-8")
@@ -154,7 +153,6 @@ def test_job_history_filter_date_from_excludes_earlier(tmp_path: Path) -> None:
 
 def test_job_history_filter_date_to_excludes_later(tmp_path: Path) -> None:
     """Entries after the To date are excluded."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240101_120000.log").write_text("x", encoding="utf-8")
     (tmp_path / "robocopy_job_20240601_120000.log").write_text("x", encoding="utf-8")
@@ -204,7 +202,6 @@ def test_job_history_filter_date_to_excludes_later(tmp_path: Path) -> None:
 
 def test_job_history_filter_invalid_date_is_ignored(tmp_path: Path) -> None:
     """An unparseable date string in From/To is treated as absent (no filtering)."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240601_120000.log").write_text("x", encoding="utf-8")
     (tmp_path / "robocopy_job_20240715_090000.log").write_text("x", encoding="utf-8")
@@ -252,7 +249,6 @@ def test_job_history_filter_invalid_date_is_ignored(tmp_path: Path) -> None:
 
 def test_job_history_filter_no_matches_inserts_placeholder(tmp_path: Path) -> None:
     """When no entries match, a single placeholder row is inserted."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240601_120000.log").write_text("x", encoding="utf-8")
 
@@ -301,7 +297,6 @@ def test_job_history_filter_no_matches_inserts_placeholder(tmp_path: Path) -> No
 
 def test_job_history_clear_filter_resets_all_vars(tmp_path: Path) -> None:
     """_clear_filter empties all three filter StringVars."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._log_dir = tmp_path
@@ -331,7 +326,6 @@ def test_job_history_clear_filter_resets_all_vars(tmp_path: Path) -> None:
 
 def _make_search_win() -> Any:
     """Return a minimal _JobHistoryWindow stub wired for search tests."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     win = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._search_matches = []
@@ -355,7 +349,6 @@ def _make_search_win() -> Any:
 
 def test_search_next_applies_highlight_tag() -> None:
     """_search_next adds the highlight tag to matches."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     win = _make_search_win()
     win._content.search.side_effect = ["3.5", ""]
@@ -403,7 +396,6 @@ def test_search_no_matches_shows_zero() -> None:
 
 def test_clear_search_removes_tag_and_resets_state() -> None:
     """_clear_search removes the highlight tag and empties all state."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     win = _make_search_win()
     win._search_matches = [("1.0", "1.5"), ("2.0", "2.5")]

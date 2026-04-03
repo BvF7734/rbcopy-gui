@@ -96,8 +96,6 @@ def test_rebuild_bookmarks_menu_includes_manage_bookmarks() -> None:
     assert any("Manage Bookmarks" in label for label in labels)
 
 
-# _import_exclusions_from_file tests
-# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Gap 3: _browse_src / _browse_dst
 # ---------------------------------------------------------------------------

@@ -9,6 +9,10 @@ import pytest
 
 from tests.helpers import StringVarStub as _StringVarStub
 
+import contextlib
+import rbcopy.gui.job_history as job_history_module
+from rbcopy.gui.job_history import _JobHistoryWindow
+
 # ---------------------------------------------------------------------------
 # Job history – _JobHistoryWindow._open_externally tests
 # ---------------------------------------------------------------------------
@@ -16,7 +20,6 @@ from tests.helpers import StringVarStub as _StringVarStub
 
 def test_job_history_window_open_externally_no_selection_is_noop(tmp_path: Path) -> None:
     """_open_externally does nothing when no row is selected."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ()
@@ -41,8 +44,6 @@ def test_job_history_window_open_externally_no_selection_is_noop(tmp_path: Path)
 
 def test_job_history_window_open_externally_calls_platform_command(tmp_path: Path) -> None:
     """_open_externally invokes the OS-appropriate command to open the file."""
-    import rbcopy.gui.job_history as job_history_module
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     log = tmp_path / "robocopy_job_20240101_120000.log"
     log.touch()
@@ -77,8 +78,6 @@ def test_job_history_window_open_externally_calls_platform_command(tmp_path: Pat
 
 def test_job_history_window_open_externally_uses_startfile_on_windows(tmp_path: Path) -> None:
     """_open_externally calls os.startfile when it is available (Windows path)."""
-    import rbcopy.gui.job_history as job_history_module
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     log = tmp_path / "robocopy_job_20240101_120000.log"
     log.touch()
@@ -110,8 +109,6 @@ def test_job_history_window_open_externally_uses_startfile_on_windows(tmp_path: 
 
 def test_job_history_window_open_externally_uses_open_on_macos(tmp_path: Path) -> None:
     """_open_externally calls 'open' via subprocess when sys.platform is 'darwin' and os.startfile is unavailable."""
-    import rbcopy.gui.job_history as job_history_module
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     if hasattr(job_history_module.os, "startfile"):
         # On Windows os.startfile always takes precedence; this branch cannot be reached
@@ -157,7 +154,6 @@ def test_job_history_window_open_externally_uses_open_on_macos(tmp_path: Path) -
 
 def test_job_history_window_export_log_no_selection_is_noop() -> None:
     """_export_log does nothing when no row is selected."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ()
@@ -184,7 +180,6 @@ def test_job_history_window_export_log_no_selection_is_noop() -> None:
 
 def test_job_history_window_export_log_cancelled_dialog_is_noop(tmp_path: Path) -> None:
     """_export_log does nothing when the save-file dialog is cancelled."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     log = tmp_path / "robocopy_job_20240101_120000.log"
     log.write_text("content\n", encoding="utf-8")
@@ -217,7 +212,6 @@ def test_job_history_window_export_log_cancelled_dialog_is_noop(tmp_path: Path) 
 
 def test_job_history_window_export_log_copies_file(tmp_path: Path) -> None:
     """_export_log copies the selected log to the chosen destination."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     src = tmp_path / "robocopy_job_20240101_120000.log"
     src.write_text("log content here\n", encoding="utf-8")
@@ -250,7 +244,6 @@ def test_job_history_window_export_log_copies_file(tmp_path: Path) -> None:
 
 def test_job_history_window_export_log_shows_error_on_failure(tmp_path: Path) -> None:
     """_export_log shows an error dialog when the copy fails."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     src = tmp_path / "robocopy_job_20240101_120000.log"
     src.write_text("log content\n", encoding="utf-8")
@@ -289,7 +282,6 @@ def test_job_history_window_export_log_shows_error_on_failure(tmp_path: Path) ->
 
 def test_job_history_window_on_select_no_selection_is_noop() -> None:
     """_on_select does nothing when no row is selected."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ()
@@ -316,7 +308,6 @@ def test_job_history_window_on_select_no_selection_is_noop() -> None:
 
 def test_job_history_window_on_select_path_not_in_map_is_noop() -> None:
     """_on_select does nothing when the selected item has no corresponding log path."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item_with_no_path",)
@@ -343,7 +334,6 @@ def test_job_history_window_on_select_path_not_in_map_is_noop() -> None:
 
 def test_job_history_window_on_select_shows_error_on_read_failure(tmp_path: Path) -> None:
     """_on_select shows an error message in the content pane when the log file cannot be read."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     nonexistent = tmp_path / "missing.log"
 
@@ -379,7 +369,6 @@ def test_job_history_window_on_select_shows_error_on_read_failure(tmp_path: Path
 
 def test_job_history_window_open_externally_path_not_in_map_is_noop() -> None:
     """_open_externally does nothing when the selected item has no corresponding log path."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item_not_in_map",)
@@ -406,10 +395,7 @@ def test_job_history_window_open_externally_path_not_in_map_is_noop() -> None:
 
 def test_job_history_window_open_externally_shows_error_on_oserror(tmp_path: Path) -> None:
     """_open_externally shows an error dialog when the system open command fails."""
-    import contextlib
 
-    import rbcopy.gui.job_history as job_history_module
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     log = tmp_path / "robocopy_job_20240101_120000.log"
     log.touch()
@@ -452,7 +438,6 @@ def test_job_history_window_open_externally_shows_error_on_oserror(tmp_path: Pat
 
 def test_job_history_window_export_log_path_not_in_map_is_noop() -> None:
     """_export_log does nothing when the selected item has no corresponding log path."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item_not_in_map",)

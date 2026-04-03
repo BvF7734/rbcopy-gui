@@ -8,6 +8,9 @@ from unittest.mock import MagicMock
 
 from tests.helpers import StringVarStub as _StringVarStub
 
+import rbcopy.gui.job_history as job_history_module
+from rbcopy.gui.job_history import _JobHistoryWindow, _parse_log_exit_code
+
 # ---------------------------------------------------------------------------
 # Job history – _parse_log_exit_code last-match tests
 # ---------------------------------------------------------------------------
@@ -15,7 +18,6 @@ from tests.helpers import StringVarStub as _StringVarStub
 
 def test_parse_log_exit_code_returns_last_match(tmp_path: Path) -> None:
     """_parse_log_exit_code returns the last exit code when a log contains multiple jobs."""
-    from rbcopy.gui.job_history import _parse_log_exit_code
 
     log = tmp_path / "robocopy_job_20240101_120000.log"
     log.write_text(
@@ -34,7 +36,6 @@ def test_parse_log_exit_code_returns_last_match(tmp_path: Path) -> None:
 
 def test_parse_log_exit_code_metadata_nonzero(tmp_path: Path) -> None:
     """_parse_log_exit_code extracts exit code from the RBCOPY_METADATA JSON footer."""
-    from rbcopy.gui.job_history import _parse_log_exit_code
 
     log = tmp_path / "robocopy_job_20240102_120000.log"
     log.write_text(
@@ -46,7 +47,6 @@ def test_parse_log_exit_code_metadata_nonzero(tmp_path: Path) -> None:
 
 def test_parse_log_exit_code_metadata_zero(tmp_path: Path) -> None:
     """_parse_log_exit_code extracts exit code 0 from the RBCOPY_METADATA JSON footer."""
-    from rbcopy.gui.job_history import _parse_log_exit_code
 
     log = tmp_path / "robocopy_job_20240102_120001.log"
     log.write_text(
@@ -58,7 +58,6 @@ def test_parse_log_exit_code_metadata_zero(tmp_path: Path) -> None:
 
 def test_parse_log_exit_code_metadata_takes_precedence(tmp_path: Path) -> None:
     """Metadata footer exit code wins over legacy regex when both are present."""
-    from rbcopy.gui.job_history import _parse_log_exit_code
 
     log = tmp_path / "robocopy_job_20240102_120002.log"
     log.write_text(
@@ -72,7 +71,6 @@ def test_parse_log_exit_code_metadata_takes_precedence(tmp_path: Path) -> None:
 
 def test_parse_log_exit_code_metadata_last_entry_wins(tmp_path: Path) -> None:
     """When multiple RBCOPY_METADATA footers exist, the last one wins."""
-    from rbcopy.gui.job_history import _parse_log_exit_code
 
     log = tmp_path / "robocopy_job_20240102_120003.log"
     log.write_text(
@@ -85,7 +83,6 @@ def test_parse_log_exit_code_metadata_last_entry_wins(tmp_path: Path) -> None:
 
 def test_parse_log_exit_code_metadata_malformed_falls_back(tmp_path: Path) -> None:
     """Malformed JSON in RBCOPY_METADATA is ignored; legacy regex is used as fallback."""
-    from rbcopy.gui.job_history import _parse_log_exit_code
 
     log = tmp_path / "robocopy_job_20240102_120004.log"
     log.write_text(
@@ -98,7 +95,6 @@ def test_parse_log_exit_code_metadata_malformed_falls_back(tmp_path: Path) -> No
 
 def test_parse_log_exit_code_metadata_missing_key_falls_back(tmp_path: Path) -> None:
     """JSON without 'exit_code' key is ignored; legacy regex is used as fallback."""
-    from rbcopy.gui.job_history import _parse_log_exit_code
 
     log = tmp_path / "robocopy_job_20240102_120005.log"
     log.write_text(
@@ -116,7 +112,6 @@ def test_parse_log_exit_code_metadata_missing_key_falls_back(tmp_path: Path) -> 
 
 def test_job_history_window_on_select_small_file_shows_full_content(tmp_path: Path) -> None:
     """_on_select loads the entire content for files under the preview limit."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     log = tmp_path / "robocopy_job_20240101_120000.log"
     log.write_text("hello world\n", encoding="utf-8")
@@ -150,8 +145,6 @@ def test_job_history_window_on_select_small_file_shows_full_content(tmp_path: Pa
 
 def test_job_history_window_on_select_large_file_shows_tail(tmp_path: Path) -> None:
     """_on_select shows only the tail and a truncation notice for large files."""
-    import rbcopy.gui.job_history as job_history_module
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     log = tmp_path / "robocopy_job_20240101_120000.log"
     # Write a file that exceeds _MAX_LOG_PREVIEW_BYTES.

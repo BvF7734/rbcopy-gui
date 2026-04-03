@@ -10,10 +10,11 @@ from unittest.mock import MagicMock, patch
 
 from tests.helpers import make_sync_thread as _make_sync_thread, StringVarStub as _StringVarStub
 
+from rbcopy.gui.job_history import _JobHistoryWindow
+
 
 def test_job_history_window_refresh_empty_dir(tmp_path: Path) -> None:
     """_JobHistoryWindow._refresh shows a placeholder row when no log files exist."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     mock_tree = MagicMock()
     mock_tree.get_children.return_value = []
@@ -46,7 +47,6 @@ def test_job_history_window_refresh_empty_dir(tmp_path: Path) -> None:
 
 def test_job_history_window_refresh_populates_rows(tmp_path: Path) -> None:
     """_JobHistoryWindow._refresh adds one row per matching log file."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240101_120000.log").write_text(
         "2024-01-01 12:00:00 [INFO    ] rbcopy.gui: robocopy finished with exit code 1\n",
@@ -93,7 +93,6 @@ def test_job_history_window_refresh_populates_rows(tmp_path: Path) -> None:
 
 def test_job_history_window_refresh_shows_exit_code(tmp_path: Path) -> None:
     """_JobHistoryWindow._refresh updates the exit-code column after background parsing."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240101_120000.log").write_text(
         "2024-01-01 12:00:00 [INFO    ] rbcopy.gui: robocopy finished with exit code 8\n",
@@ -132,7 +131,6 @@ def test_job_history_window_refresh_shows_exit_code(tmp_path: Path) -> None:
 
 def test_job_history_window_refresh_unknown_code_for_in_progress(tmp_path: Path) -> None:
     """_JobHistoryWindow._refresh shows 'In progress / unknown' for files with no exit code."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240101_120000.log").write_text(
         "2024-01-01 12:00:00 [INFO    ] rbcopy.gui: Job started\n",
@@ -176,7 +174,6 @@ def test_job_history_window_refresh_cancels_stale_worker(tmp_path: Path) -> None
     generation before ``_update`` runs.  The callback must detect the stale
     generation and skip the ``tree.set()`` call entirely.
     """
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240101_120000.log").write_text(
         "2024-01-01 12:00:00 [INFO    ] rbcopy.gui: robocopy finished with exit code 1\n",
@@ -233,7 +230,6 @@ def test_job_history_window_refresh_with_active_filter_parses_all_entries(tmp_pa
     that no running worker could fill in.  The fix builds ``pending`` from
     ``_all_entries`` so every file is always resolved.
     """
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     # Two log files with different dates.
     (tmp_path / "robocopy_job_20240101_120000.log").write_text(
@@ -290,7 +286,6 @@ def test_job_history_window_refresh_with_active_filter_parses_all_entries(tmp_pa
 
 def test_job_history_window_refresh_deletes_existing_rows(tmp_path: Path) -> None:
     """_refresh clears existing Treeview rows before repopulating the list."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     mock_tree = MagicMock()
     mock_tree.get_children.return_value = ["old_row_1", "old_row_2"]
@@ -319,7 +314,6 @@ def test_job_history_window_refresh_deletes_existing_rows(tmp_path: Path) -> Non
 
 def test_job_history_window_refresh_handles_invalid_date_in_filename(tmp_path: Path) -> None:
     """_refresh falls back to the raw stem when the filename date cannot be parsed."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     # Create a log file whose date portion is not in the expected format.
     (tmp_path / "robocopy_job_BADDATE.log").write_text("content\n", encoding="utf-8")
@@ -359,7 +353,6 @@ def test_job_history_window_refresh_handles_invalid_date_in_filename(tmp_path: P
 
 def test_job_history_window_refresh_parse_worker_aborts_on_changed_generation(tmp_path: Path) -> None:
     """The parse worker returns early when the generation changes mid-loop (second file skipped)."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240101_120000.log").write_text("job1\n", encoding="utf-8")
     (tmp_path / "robocopy_job_20240101_120001.log").write_text("job2\n", encoding="utf-8")
@@ -412,7 +405,6 @@ def test_job_history_window_refresh_parse_worker_aborts_on_changed_generation(tm
 
 def test_job_history_window_update_callback_suppresses_tclerror(tmp_path: Path) -> None:
     """The _update callback silently ignores TclError raised when the window is closed."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240101_120000.log").write_text(
         "2024-01-01 12:00:00 [INFO] rbcopy.gui: robocopy finished with exit code 1\n",
@@ -450,7 +442,6 @@ def test_job_history_window_update_callback_suppresses_tclerror(tmp_path: Path) 
 
 def test_job_history_window_parse_worker_aborts_on_tclerror_in_after(tmp_path: Path) -> None:
     """The parse worker returns early when after() raises TclError (window destroyed)."""
-    from rbcopy.gui.job_history import _JobHistoryWindow
 
     (tmp_path / "robocopy_job_20240101_120000.log").write_text("content\n", encoding="utf-8")
 
