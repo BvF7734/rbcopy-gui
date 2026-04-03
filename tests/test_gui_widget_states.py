@@ -558,16 +558,22 @@ def test_get_current_log_file_path_returns_path_when_file_handler(tmp_path: Path
     """_get_current_log_file_path returns the path of the FileHandler's log file."""
     from rbcopy.gui.main_window import _get_current_log_file_path
 
+    rbcopy_logger = logging.getLogger("rbcopy")
+    original_file_handlers = [h for h in rbcopy_logger.handlers if isinstance(h, logging.FileHandler)]
+    for h in original_file_handlers:
+        rbcopy_logger.removeHandler(h)
+
     log_file = tmp_path / "session.log"
     handler = logging.FileHandler(str(log_file))
-    rbcopy_logger = logging.getLogger("rbcopy")
     rbcopy_logger.addHandler(handler)
 
     try:
         result = _get_current_log_file_path()
     finally:
-        handler.close()
         rbcopy_logger.removeHandler(handler)
+        handler.close()
+        for h in original_file_handlers:
+            rbcopy_logger.addHandler(h)
 
     assert result == Path(handler.baseFilename)
 
