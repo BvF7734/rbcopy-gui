@@ -441,25 +441,26 @@ make lock-check
 
 ### `make build`
 
-**Purpose**: Build distributable package.
+**Purpose**: Build a versioned Windows executable with PyInstaller.
 
 **What it does**:
 
-- Creates source distribution (`.tar.gz`)
-- Creates wheel distribution (`.whl`)
-- Places builds in `dist/` directory
+- Requires a `VERSION=vX.Y.Z` argument (validated for semver format)
+- Runs the full test suite (`make pytest`) before building
+- Compiles the application into a self-contained `dist/rbcopy-<VERSION>.exe` using PyInstaller
 
 **Usage**:
 
 ```bash
-# Build package for distribution
-make build
+# Build a release executable
+make build VERSION=v1.0.0
 ```
 
 **Output**:
 
-- `dist/rbcopy-X.Y.Z.tar.gz` - Source distribution
-- `dist/rbcopy-X.Y.Z-py3-none-any.whl` - Wheel distribution
+- `dist/rbcopy-v1.0.0.exe` — self-contained Windows executable (no Python installation required)
+
+> **Note**: The CI `release.yaml` workflow runs this step automatically on version tag pushes. You rarely need to run it locally unless you want to test the executable build.
 
 ## Environment Variables
 

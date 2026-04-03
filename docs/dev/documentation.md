@@ -82,21 +82,12 @@ def get_data():
 
 ```python
 # Do this - uses actual project structure
-from rbcopy.services.cache import get_cached, set_cached
+from rbcopy.presets import CustomPresetsStore
 
-async def get_user_profile(user_id: int):
-    """Get user profile with caching."""
-    # Check cache first
-    cached_profile = await get_cached(f"user:{user_id}", alias="persistent")
-    if cached_profile:
-        return cached_profile
-
-    # Fetch from database
-    profile = await fetch_profile_from_db(user_id)
-
-    # Cache for 1 hour
-    await set_cached(f"user:{user_id}", profile, ttl=3600, alias="persistent")
-    return profile
+def get_preset_names(data_dir: Path) -> list[str]:
+    """Return all saved preset names."""
+    store = CustomPresetsStore(data_dir=data_dir)
+    return [p.name for p in store.list()]
 ```
 
 ### 3. Testing Examples
@@ -119,12 +110,11 @@ def test_something(mock_client):
 **Good Example** (actual fixtures):
 
 ```python
-# Do this - uses actual project fixtures
-def test_api_endpoint(fastapi_client):
-    """Test the API endpoint using the actual test client fixture."""
-    response = fastapi_client.get("/users/1")
-    assert response.status_code == 200
-    assert "name" in response.json()
+# Do this - uses actual project fixtures (from conftest.py)
+def test_log_file_created(log_dir):
+    """A session log file is written to the log directory."""
+    log_files = list(log_dir.glob("robocopy_job_*.log"))
+    assert len(log_files) == 1
 ```
 
 #### Completeness
@@ -377,34 +367,18 @@ When updating documentation:
 
 ## Documentation Tools
 
-### Markdown Linting
+### Markdown Formatting
 
-The project uses markdownlint for consistency:
+Documentation is plain Markdown — no special linting tool is required. Consistent formatting is maintained by following the standards in this document and reviewing changes in pull requests.
 
-```bash
-# Check markdown formatting
-make lint_markdown
-```
+### Manual Testing
 
-### Schema Documentation
+When updating documentation:
 
-Database schema is auto-generated:
-
-```bash
-# Update schema documentation
-make document_schema
-```
-
-This uses [Paracelsus](https://github.com/tedivm/paracelsus) to inject schema information into database.md.
-
-### Link Checking
-
-Verify all links in documentation:
-
-```bash
-# Check for broken links
-make check_links
-```
+1. Follow the documentation steps yourself
+2. Run all example commands
+3. Verify code examples work
+4. Check that links are valid
 
 ## Best Practices
 

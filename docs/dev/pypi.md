@@ -88,11 +88,11 @@ dynamic = ["version"]
 
 ### Local Build
 
-Build packages locally for testing:
+Build Python distribution packages locally for testing:
 
 ```bash
-# Build source distribution and wheel
-make package
+# Build source distribution and wheel using uv
+uv build
 
 # Output in dist/ directory
 ls dist/
@@ -100,7 +100,7 @@ ls dist/
 # rbcopy-1.2.3-py3-none-any.whl
 ```
 
-> **Note**: `make build` builds the Windows executable (requires `VERSION=vX.Y.Z`). Use `make package` to produce the Python `.whl` / `.tar.gz` distribution files.
+> **Note**: `make build VERSION=vX.Y.Z` builds the Windows executable. Use `uv build` to produce the Python `.whl` / `.tar.gz` distribution files.
 
 **Build Artifacts**:
 
@@ -114,7 +114,7 @@ Test installation from the built package:
 ```bash
 # Create clean virtual environment
 python -m venv test-env
-source test-env/bin/activate
+test-env\Scripts\activate
 
 # Install from wheel
 pip install dist/rbcopy-*.whl
@@ -124,7 +124,7 @@ python -c "import rbcopy; print(rbcopy.__version__)"
 
 # Clean up
 deactivate
-rm -rf test-env
+Remove-Item -Recurse test-env
 ```
 
 ### Check Package
@@ -198,7 +198,7 @@ jobs:
         run: make install
 
       - name: Build Wheel
-        run: make package
+        run: uv build
 
       - name: Publish package
         if: env.PUBLISH_TO_PYPI == 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
@@ -267,7 +267,7 @@ If you prefer to publish the first version manually:
 
 ```bash
 # Build package
-make package
+uv build
 
 # Install twine
 pip install twine

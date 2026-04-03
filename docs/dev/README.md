@@ -41,6 +41,7 @@ rbcopy is structured in several layers:
 | `rbcopy/system_check.py` | Pre-flight checks – verifies `robocopy.exe` is on PATH and (on Windows) that the process has Administrator privileges. |
 | `rbcopy/logger.py` | Unified logging – configures the `rbcopy` logger with a Rich console handler (INFO+) and a timestamped file handler (DEBUG+). |
 | `rbcopy/app_dirs.py` | Single source of truth for the data directory. Resolves from `RBCOPY_DATA_DIR` env var, `~/.rbcopy_location` bootstrap pointer, or platform default (`%LOCALAPPDATA%\RBCopy` on Windows). |
+| `rbcopy/storage.py` | `JsonStore` – generic, Pydantic-validated, JSON-backed persistent store base class used by `PreferencesStore`, `BookmarksStore`, `CustomPresetsStore`, and `PathHistoryStore`. |
 | `rbcopy/presets.py` | `CustomPreset` Pydantic model and `CustomPresetsStore` – persists named flag/param configurations to `presets.json`; seeds from bundled `presets.json` on first launch. |
 | `rbcopy/bookmarks.py` | `Bookmark` model and `BookmarksStore` – named path bookmarks persisted to `bookmarks.json`. |
 | `rbcopy/path_history.py` | `PathHistoryStore` – remembers recently used source and destination paths (up to 20 per field) across sessions. |

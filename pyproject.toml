@@ -1,6 +1,6 @@
 [project]
 name = "rbcopy"
-description = ""
+description = "A Windows GUI wrapper for Robocopy — the built-in Windows file-copy tool"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
 license-files = ["LICENSE"]

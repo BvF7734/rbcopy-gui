@@ -9,26 +9,46 @@ Tests are organized in the `tests/` directory with a structure that mirrors the 
 ```
 tests/
 ├── __init__.py
-├── conftest.py                  # Shared fixtures and test configuration
-├── helpers.py                   # Test helper utilities
-├── test___main__.py             # Package __main__ entry point tests
-├── test_app_dirs.py             # Application directories tests
-├── test_bookmarks.py            # Bookmark model and store tests
-├── test_builder.py              # Command builder (build_command) tests
-├── test_cli.py                  # CLI application tests
-├── test_conf_settings.py        # Settings and configuration tests
-├── test_dnd.py                  # Drag-and-drop module tests
-├── test_gui.py                  # GUI component tests
-├── test_logger.py               # Logging setup tests
-├── test_notifications.py        # Notification system tests
-├── test_path_history.py         # Path history store tests
-├── test_preferences.py          # Preferences/preferences store tests
-├── test_presets.py              # Preset management tests
-├── test_rbcopy.py               # Package-level tests
-├── test_robocopy_parser.py      # Robocopy output parser tests
-├── test_system_check.py         # Pre-flight system check tests
+├── conftest.py                         # Shared fixtures and test configuration
+├── helpers.py                          # Test helper utilities
+├── test___main__.py                    # Package __main__ entry point tests
+├── test_app_dirs.py                    # Application directories tests
+├── test_bookmarks.py                   # Bookmark model and store tests
+├── test_builder.py                     # Command builder (build_command) tests
+├── test_builder_exit_codes.py          # Robocopy exit code handling tests
+├── test_builder_scripts.py             # Batch/PowerShell script export tests
+├── test_cli.py                         # CLI application tests
+├── test_conf_settings.py               # Settings and configuration tests
+├── test_dnd.py                         # Drag-and-drop module tests
+├── test_e2e_filesystem.py              # End-to-end filesystem integration tests
+├── test_gui.py                         # Core GUI component tests
+├── test_gui_advanced_mode.py           # Advanced mode flag toggle tests
+├── test_gui_async_bridge.py            # Background thread / queue bridge tests
+├── test_gui_bookmark_manager.py        # Bookmark manager dialog tests
+├── test_gui_bookmarks_browse.py        # Bookmark browse and selection tests
+├── test_gui_execute.py                 # Robocopy job execution tests
+├── test_gui_import_patterns.py         # Import/export patterns dialog tests
+├── test_gui_interactions.py            # General GUI interaction tests
+├── test_gui_job_history_actions.py     # Job history action tests
+├── test_gui_job_history_filter_search.py # Job history filter/search tests
+├── test_gui_job_history_parse.py       # Job history log parsing tests
+├── test_gui_job_history_refresh.py     # Job history refresh tests
+├── test_gui_main_window.py             # Main window layout and lifecycle tests
+├── test_gui_presets.py                 # GUI preset load/save tests
+├── test_gui_run.py                     # GUI run button and job lifecycle tests
+├── test_gui_script_builder.py          # Script export dialog tests
+├── test_gui_widget_states.py           # Widget enable/disable state tests
+├── test_logger.py                      # Logging setup tests
+├── test_notifications.py               # Notification system tests
+├── test_path_history.py                # Path history store tests
+├── test_preferences.py                 # Preferences / preferences store tests
+├── test_presets.py                     # Preset management tests
+├── test_rbcopy.py                      # Package-level tests
+├── test_robocopy_parser.py             # Robocopy output parser tests
+├── test_storage.py                     # JsonStore base class tests
+├── test_system_check.py                # Pre-flight system check tests
 └── services/
-    └── __init__.py              # (placeholder for future service tests)
+    └── __init__.py                     # (placeholder for future service tests)
 ```
 
 ### Test Organization Principles
@@ -149,18 +169,6 @@ async def async_resource():
     await cleanup_resource(resource)
 ```
 
-### Testing Async Context Managers
-
-```python
-@pytest.mark.asyncio
-async def test_async_context_manager():
-    """Test async context manager."""
-    async with get_session() as session:
-        result = await session.execute(select(User))
-        users = result.scalars().all()
-        assert len(users) >= 0
-```
-
 ## Mocking and Patching
 
 Use pytest's built-in mocking capabilities along with unittest.mock for mocking dependencies.
@@ -168,17 +176,16 @@ Use pytest's built-in mocking capabilities along with unittest.mock for mocking 
 ### Basic Mocking
 
 ```python
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
-@pytest.mark.asyncio
-async def test_with_mock():
+def test_with_mock():
     """Test with a mocked dependency."""
-    mock_service = AsyncMock()
-    mock_service.get_data.return_value = {"key": "value"}
+    mock_store = MagicMock()
+    mock_store.list.return_value = []
 
-    result = await function_using_service(mock_service)
-    assert result["key"] == "value"
-    mock_service.get_data.assert_called_once()
+    result = get_items(mock_store)
+    assert result == []
+    mock_store.list.assert_called_once()
 ```
 
 ### Patching Functions
@@ -340,19 +347,19 @@ omit = [
        assert validate_email(input) == expected
    ```
 
-6. **Keep tests fast**: Use in-memory databases, mock external services, avoid sleep
+6. **Keep tests fast**: Use temporary directories (`tmp_path`), mock external processes, avoid sleep
 
    ```python
-   # Good - uses in-memory database
-   @pytest.mark.asyncio
-   async def test_with_db(db_session):
-       result = await query_database(db_session)
-       assert result is not None
+   # Good - uses pytest's tmp_path fixture for isolated file state
+   def test_preset_persists(tmp_path):
+       store = CustomPresetsStore(data_dir=tmp_path)
+       store.add(CustomPreset(name="test", flags={}))
+       assert store.get("test") is not None
 
    # Bad - sleeps unnecessarily
-   @pytest.mark.asyncio
-   async def test_slow():
-       await asyncio.sleep(5)  # Avoid this!
+   def test_slow():
+       import time
+       time.sleep(5)  # Avoid this!
        assert True
    ```
 
@@ -382,9 +389,9 @@ omit = [
 
 ## Continuous Integration
 
-Tests run automatically on every push and pull request via GitHub Actions. The CI pipeline:
+Tests run automatically on every version tag push via GitHub Actions (see [github.md](./github.md)). The `release.yaml` pipeline runs before building the executable:
 
-1. **Runs all tests** with coverage reporting
+1. **Runs all tests** with coverage reporting on Windows, Python 3.10–3.14
 2. **Checks code formatting** with ruff
 3. **Performs type checking** with mypy
 4. **Validates linting rules** with ruff
