@@ -66,7 +66,7 @@ def test_properties_only_disables_dst_entry(gui: RobocopyGUI) -> None:
     """Activating Properties Only must disable the destination entry widget."""
     gui._props_only_var.set(True)
 
-    assert gui._dst_entry.instate(["disabled"]), (
+    assert gui._dst_entry.instate(["disabled"]), (  # type: ignore[no-untyped-call]
         "_dst_entry must enter the disabled state when Properties Only is active"
     )
 
@@ -100,7 +100,7 @@ def test_properties_only_disables_forced_flag_checkbuttons(gui: RobocopyGUI) -> 
     for flag in PROPERTIES_ONLY_FLAGS:
         if flag in gui._flag_cbs:
             cb = gui._flag_cbs[flag]
-            assert cb.instate(["disabled"]), (
+            assert cb.instate(["disabled"]), (  # type: ignore[no-untyped-call]
                 f"Checkbutton for {flag!r} must be in disabled state when Properties Only is active"
             )
 
@@ -112,7 +112,7 @@ def test_properties_only_disables_forced_param_checkbuttons(gui: RobocopyGUI) ->
     for flag in PROPERTIES_ONLY_PARAMS:
         if flag in gui._param_cbs:
             param_cb = gui._param_cbs[flag]
-            assert param_cb.instate(["disabled"]), (
+            assert param_cb.instate(["disabled"]), (  # type: ignore[no-untyped-call]
                 f"Param checkbutton for {flag!r} must be disabled when Properties Only is active"
             )
 
@@ -135,7 +135,7 @@ def test_properties_only_deactivation_reenables_dst_entry(gui: RobocopyGUI) -> N
     gui._props_only_var.set(True)
     gui._props_only_var.set(False)
 
-    assert not gui._dst_entry.instate(["disabled"]), (
+    assert not gui._dst_entry.instate(["disabled"]), (  # type: ignore[no-untyped-call]
         "_dst_entry must leave the disabled state after Properties Only is deactivated"
     )
 
@@ -151,7 +151,7 @@ def test_mir_active_disables_superseded_checkbuttons(gui: RobocopyGUI) -> None:
 
     for implied_flag in SUPERSEDES["/MIR"]:
         cb = gui._flag_cbs[implied_flag]
-        assert cb.instate(["disabled"]), f"Checkbutton for {implied_flag!r} must be disabled because /MIR supersedes it"
+        assert cb.instate(["disabled"]), f"Checkbutton for {implied_flag!r} must be disabled because /MIR supersedes it"  # type: ignore[no-untyped-call]
 
 
 def test_mir_unchecked_reenables_superseded_checkbuttons(gui: RobocopyGUI) -> None:
@@ -161,7 +161,7 @@ def test_mir_unchecked_reenables_superseded_checkbuttons(gui: RobocopyGUI) -> No
 
     for implied_flag in SUPERSEDES["/MIR"]:
         cb = gui._flag_cbs[implied_flag]
-        assert not cb.instate(["disabled"]), (
+        assert not cb.instate(["disabled"]), (  # type: ignore[no-untyped-call]
             f"Checkbutton for {implied_flag!r} must be re-enabled after /MIR is unchecked"
         )
 
@@ -173,7 +173,7 @@ def test_mir_supersession_does_not_disable_unrelated_flags(gui: RobocopyGUI) -> 
     superseded_by_mir: frozenset[str] = SUPERSEDES["/MIR"]
     for flag, cb in gui._flag_cbs.items():
         if flag not in superseded_by_mir:
-            assert not cb.instate(["disabled"]), (
+            assert not cb.instate(["disabled"]), (  # type: ignore[no-untyped-call]
                 f"Flag {flag!r} must not be disabled solely because /MIR is active (it is not superseded by /MIR)"
             )
 
@@ -187,7 +187,7 @@ def _make_preset(**kwargs: object) -> CustomPreset:
     """Build a minimal CustomPreset for testing, forwarding any field overrides."""
     defaults: dict[str, object] = dict(name="test", source="", destination="", flags={}, params={}, file_filter="")
     defaults.update(kwargs)
-    return CustomPreset(**defaults)  # type: ignore[arg-type]
+    return CustomPreset(**defaults)
 
 
 def test_apply_preset_clears_flags_not_in_preset(gui: RobocopyGUI) -> None:
@@ -261,7 +261,7 @@ def test_zb_disables_z_checkbutton(gui: RobocopyGUI) -> None:
     gui._flag_vars["/ZB"].set(True)
     gui._refresh_widget_states()
 
-    assert gui._flag_cbs["/Z"].instate(["disabled"]), "/Z must be disabled when /ZB is active"
+    assert gui._flag_cbs["/Z"].instate(["disabled"]), "/Z must be disabled when /ZB is active"  # type: ignore[no-untyped-call]
 
 
 def test_zb_disables_b_checkbutton(gui: RobocopyGUI) -> None:
@@ -269,7 +269,7 @@ def test_zb_disables_b_checkbutton(gui: RobocopyGUI) -> None:
     gui._flag_vars["/ZB"].set(True)
     gui._refresh_widget_states()
 
-    assert gui._flag_cbs["/B"].instate(["disabled"]), "/B must be disabled when /ZB is active"
+    assert gui._flag_cbs["/B"].instate(["disabled"]), "/B must be disabled when /ZB is active"  # type: ignore[no-untyped-call]
 
 
 def test_zb_reenables_z_when_unchecked(gui: RobocopyGUI) -> None:
@@ -279,7 +279,7 @@ def test_zb_reenables_z_when_unchecked(gui: RobocopyGUI) -> None:
     gui._flag_vars["/ZB"].set(False)
     gui._refresh_widget_states()
 
-    assert not gui._flag_cbs["/Z"].instate(["disabled"]), "/Z must be re-enabled when /ZB is unchecked"
+    assert not gui._flag_cbs["/Z"].instate(["disabled"]), "/Z must be re-enabled when /ZB is unchecked"  # type: ignore[no-untyped-call]
 
 
 def test_zb_reenables_b_when_unchecked(gui: RobocopyGUI) -> None:
@@ -289,7 +289,7 @@ def test_zb_reenables_b_when_unchecked(gui: RobocopyGUI) -> None:
     gui._flag_vars["/ZB"].set(False)
     gui._refresh_widget_states()
 
-    assert not gui._flag_cbs["/B"].instate(["disabled"]), "/B must be re-enabled when /ZB is unchecked"
+    assert not gui._flag_cbs["/B"].instate(["disabled"]), "/B must be re-enabled when /ZB is unchecked"  # type: ignore[no-untyped-call]
 
 
 def test_move_disables_mov_checkbutton(gui: RobocopyGUI) -> None:
@@ -297,7 +297,7 @@ def test_move_disables_mov_checkbutton(gui: RobocopyGUI) -> None:
     gui._flag_vars["/MOVE"].set(True)
     gui._refresh_widget_states()
 
-    assert gui._flag_cbs["/MOV"].instate(["disabled"]), "/MOV must be disabled when /MOVE is active"
+    assert gui._flag_cbs["/MOV"].instate(["disabled"]), "/MOV must be disabled when /MOVE is active"  # type: ignore[no-untyped-call]
 
 
 def test_move_reenables_mov_when_unchecked(gui: RobocopyGUI) -> None:
@@ -307,7 +307,7 @@ def test_move_reenables_mov_when_unchecked(gui: RobocopyGUI) -> None:
     gui._flag_vars["/MOVE"].set(False)
     gui._refresh_widget_states()
 
-    assert not gui._flag_cbs["/MOV"].instate(["disabled"]), "/MOV must be re-enabled when /MOVE is unchecked"
+    assert not gui._flag_cbs["/MOV"].instate(["disabled"]), "/MOV must be re-enabled when /MOVE is unchecked"  # type: ignore[no-untyped-call]
 
 
 def test_mir_supersession_does_not_affect_zb_state(gui: RobocopyGUI) -> None:
@@ -318,4 +318,4 @@ def test_mir_supersession_does_not_affect_zb_state(gui: RobocopyGUI) -> None:
 
     # /ZB is not superseded by /MIR – it must remain normally interactive
     # (its own superseded children /Z and /B should still be disabled by /ZB).
-    assert not gui._flag_cbs["/ZB"].instate(["disabled"]), "/ZB must not be disabled by /MIR"
+    assert not gui._flag_cbs["/ZB"].instate(["disabled"]), "/ZB must not be disabled by /MIR"  # type: ignore[no-untyped-call]

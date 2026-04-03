@@ -265,8 +265,9 @@ def test_bookmark_manager_add_calls_store_and_notifies(tmp_path: Path) -> None:
     with patch("rbcopy.gui.bookmark_manager._EditBookmarkDialog", return_value=mock_dlg):
         win._add()
 
-    assert store.get_bookmark("NewBM") is not None
-    assert store.get_bookmark("NewBM").path == r"C:\new\path"
+    bm = store.get_bookmark("NewBM")
+    assert bm is not None
+    assert bm.path == r"C:\new\path"
     win._on_change.assert_called_once()
     win._refresh.assert_called_once()
 
@@ -313,8 +314,9 @@ def test_bookmark_manager_edit_updates_name_and_path(tmp_path: Path) -> None:
         win._edit()
 
     assert store.get_bookmark("OldName") is None
-    assert store.get_bookmark("NewName") is not None
-    assert store.get_bookmark("NewName").path == r"C:\new"
+    bm = store.get_bookmark("NewName")
+    assert bm is not None
+    assert bm.path == r"C:\new"
     win._on_change.assert_called_once()
     win._refresh.assert_called_once()
 

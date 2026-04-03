@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -24,7 +25,7 @@ def test_job_history_window_open_externally_no_selection_is_noop(tmp_path: Path)
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ()
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
     win._resolved = {}
     win._filter_var = _StringVarStub()
@@ -51,7 +52,7 @@ def test_job_history_window_open_externally_calls_platform_command(tmp_path: Pat
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item1",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
     win._resolved = {}
     win._filter_var = _StringVarStub()
@@ -85,7 +86,7 @@ def test_job_history_window_open_externally_uses_startfile_on_windows(tmp_path: 
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item1",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
     win._resolved = {}
     win._filter_var = _StringVarStub()
@@ -121,7 +122,7 @@ def test_job_history_window_open_externally_uses_open_on_macos(tmp_path: Path) -
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item1",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
     win._resolved = {}
     win._filter_var = _StringVarStub()
@@ -158,7 +159,7 @@ def test_job_history_window_export_log_no_selection_is_noop() -> None:
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ()
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
     win._resolved = {}
     win._filter_var = _StringVarStub()
@@ -187,7 +188,7 @@ def test_job_history_window_export_log_cancelled_dialog_is_noop(tmp_path: Path) 
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item1",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
     win._resolved = {}
     win._filter_var = _StringVarStub()
@@ -220,7 +221,7 @@ def test_job_history_window_export_log_copies_file(tmp_path: Path) -> None:
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item1",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
     win._resolved = {}
     win._filter_var = _StringVarStub()
@@ -252,7 +253,7 @@ def test_job_history_window_export_log_shows_error_on_failure(tmp_path: Path) ->
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item1",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
     win._resolved = {}
     win._filter_var = _StringVarStub()
@@ -286,7 +287,7 @@ def test_job_history_window_on_select_no_selection_is_noop() -> None:
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ()
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
     win._resolved = {}
     win._filter_var = _StringVarStub()
@@ -312,7 +313,7 @@ def test_job_history_window_on_select_path_not_in_map_is_noop() -> None:
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item_with_no_path",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._tree = mock_tree
     win._log_file_map = {}  # empty – no mapping for the selected item
     win._content = MagicMock()
@@ -340,7 +341,7 @@ def test_job_history_window_on_select_shows_error_on_read_failure(tmp_path: Path
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item1",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._tree = mock_tree
     win._log_file_map = {"item1": nonexistent}
     win._content = MagicMock()
@@ -373,7 +374,7 @@ def test_job_history_window_open_externally_path_not_in_map_is_noop() -> None:
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item_not_in_map",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
     win._resolved = {}
     win._filter_var = _StringVarStub()
@@ -396,14 +397,13 @@ def test_job_history_window_open_externally_path_not_in_map_is_noop() -> None:
 def test_job_history_window_open_externally_shows_error_on_oserror(tmp_path: Path) -> None:
     """_open_externally shows an error dialog when the system open command fails."""
 
-
     log = tmp_path / "robocopy_job_20240101_120000.log"
     log.touch()
 
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item1",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
     win._resolved = {}
     win._filter_var = _StringVarStub()
@@ -442,7 +442,7 @@ def test_job_history_window_export_log_path_not_in_map_is_noop() -> None:
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item_not_in_map",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._all_entries = []
     win._resolved = {}
     win._filter_var = _StringVarStub()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -119,7 +120,7 @@ def test_job_history_window_on_select_small_file_shows_full_content(tmp_path: Pa
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item1",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._tree = mock_tree
     win._log_file_map = {"item1": log}
     win._content = MagicMock()
@@ -155,7 +156,7 @@ def test_job_history_window_on_select_large_file_shows_tail(tmp_path: Path) -> N
     mock_tree = MagicMock()
     mock_tree.selection.return_value = ("item1",)
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._tree = mock_tree
     win._log_file_map = {"item1": log}
     win._content = MagicMock()

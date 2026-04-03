@@ -19,7 +19,7 @@ def test_job_history_window_refresh_empty_dir(tmp_path: Path) -> None:
     mock_tree = MagicMock()
     mock_tree.get_children.return_value = []
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._log_dir = tmp_path
     win._log_file_map = {}
     win._refresh_generation = 0
@@ -67,7 +67,7 @@ def test_job_history_window_refresh_populates_rows(tmp_path: Path) -> None:
 
     mock_tree.insert.side_effect = _insert
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._log_dir = tmp_path
     win._log_file_map = {}
     win._refresh_generation = 0
@@ -103,7 +103,7 @@ def test_job_history_window_refresh_shows_exit_code(tmp_path: Path) -> None:
     mock_tree.get_children.return_value = []
     mock_tree.insert.return_value = "1"
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._log_dir = tmp_path
     win._log_file_map = {}
     win._refresh_generation = 0
@@ -141,7 +141,7 @@ def test_job_history_window_refresh_unknown_code_for_in_progress(tmp_path: Path)
     mock_tree.get_children.return_value = []
     mock_tree.insert.return_value = "1"
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._log_dir = tmp_path
     win._log_file_map = {}
     win._refresh_generation = 0
@@ -184,7 +184,7 @@ def test_job_history_window_refresh_cancels_stale_worker(tmp_path: Path) -> None
     mock_tree.get_children.return_value = []
     mock_tree.insert.return_value = "1"
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._log_dir = tmp_path
     win._log_file_map = {}
     win._refresh_generation = 0
@@ -247,12 +247,11 @@ def test_job_history_window_refresh_with_active_filter_parses_all_entries(tmp_pa
 
     def _insert(*_args: Any, **kwargs: Any) -> str:
         _counter[0] += 1
-        iid = kwargs.get("iid", str(_counter[0]))
-        return iid
+        return str(kwargs.get("iid", str(_counter[0])))
 
     mock_tree.insert.side_effect = _insert
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._log_dir = tmp_path
     win._log_file_map = {}
     win._refresh_generation = 0
@@ -290,7 +289,7 @@ def test_job_history_window_refresh_deletes_existing_rows(tmp_path: Path) -> Non
     mock_tree = MagicMock()
     mock_tree.get_children.return_value = ["old_row_1", "old_row_2"]
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._log_dir = tmp_path
     win._log_file_map = {}
     win._refresh_generation = 0
@@ -322,7 +321,7 @@ def test_job_history_window_refresh_handles_invalid_date_in_filename(tmp_path: P
     mock_tree.get_children.return_value = []
     mock_tree.insert.return_value = "1"
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._log_dir = tmp_path
     win._log_file_map = {}
     win._refresh_generation = 0
@@ -367,7 +366,7 @@ def test_job_history_window_refresh_parse_worker_aborts_on_changed_generation(tm
 
     mock_tree.insert.side_effect = _insert
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._log_dir = tmp_path
     win._log_file_map = {}
     win._refresh_generation = 0
@@ -417,7 +416,7 @@ def test_job_history_window_update_callback_suppresses_tclerror(tmp_path: Path) 
     # Simulate window being destroyed: tree.set() raises TclError.
     mock_tree.set.side_effect = tk.TclError("invalid command name")
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._log_dir = tmp_path
     win._log_file_map = {}
     win._refresh_generation = 0
@@ -449,7 +448,7 @@ def test_job_history_window_parse_worker_aborts_on_tclerror_in_after(tmp_path: P
     mock_tree.get_children.return_value = []
     mock_tree.insert.return_value = "1"
 
-    win = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
     win._log_dir = tmp_path
     win._log_file_map = {}
     win._refresh_generation = 0
