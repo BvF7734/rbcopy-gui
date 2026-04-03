@@ -520,3 +520,118 @@ def test_on_save_stops_after_first_invalid_field(tmp_path: Path) -> None:
         _PreferencesDialog._on_save(fake)
 
     assert mock_warn.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Gap 15: _PreferencesDialog._on_reset_history / _on_reset_bookmarks
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_dialog_with_callbacks(tmp_path: Path) -> MagicMock:
+    """Return a fake _PreferencesDialog with reset callbacks attached."""
+    from rbcopy.gui.preferences_dialog import _PreferencesDialog
+
+    fake: MagicMock = MagicMock()
+    fake._store = PreferencesStore(path=tmp_path / "prefs.json")
+    fake._on_clear_history = MagicMock()
+    fake._on_clear_bookmarks = MagicMock()
+    # Bind the real reset methods so they actually execute.
+    fake._on_reset_history = types.MethodType(_PreferencesDialog._on_reset_history, fake)
+    fake._on_reset_bookmarks = types.MethodType(_PreferencesDialog._on_reset_bookmarks, fake)
+    return fake
+
+
+def test_on_reset_history_calls_clear_history_when_confirmed(tmp_path: Path) -> None:
+    """_on_reset_history invokes on_clear_history when the user confirms."""
+    fake = _make_fake_dialog_with_callbacks(tmp_path)
+
+    with (
+        patch("rbcopy.gui.preferences_dialog.messagebox.askyesno", return_value=True),
+        patch("rbcopy.gui.preferences_dialog.messagebox.showinfo"),
+    ):
+        fake._on_reset_history()
+
+    fake._on_clear_history.assert_called_once()
+
+
+def test_on_reset_history_shows_info_after_clearing(tmp_path: Path) -> None:
+    """_on_reset_history shows a success info dialog after clearing path history."""
+    fake = _make_fake_dialog_with_callbacks(tmp_path)
+
+    with (
+        patch("rbcopy.gui.preferences_dialog.messagebox.askyesno", return_value=True),
+        patch("rbcopy.gui.preferences_dialog.messagebox.showinfo") as mock_info,
+    ):
+        fake._on_reset_history()
+
+    mock_info.assert_called_once()
+
+
+def test_on_reset_history_does_not_clear_when_cancelled(tmp_path: Path) -> None:
+    """_on_reset_history does nothing when the user cancels the confirmation dialog."""
+    fake = _make_fake_dialog_with_callbacks(tmp_path)
+
+    with patch("rbcopy.gui.preferences_dialog.messagebox.askyesno", return_value=False):
+        fake._on_reset_history()
+
+    fake._on_clear_history.assert_not_called()
+
+
+def test_on_reset_history_noop_when_callback_is_none() -> None:
+    """_on_reset_history is a no-op when _on_clear_history is None."""
+    from rbcopy.gui.preferences_dialog import _PreferencesDialog
+
+    fake: MagicMock = MagicMock()
+    fake._on_clear_history = None
+    fake._on_reset_history = types.MethodType(_PreferencesDialog._on_reset_history, fake)
+
+    # Must not raise.
+    fake._on_reset_history()
+
+
+def test_on_reset_bookmarks_calls_clear_bookmarks_when_confirmed(tmp_path: Path) -> None:
+    """_on_reset_bookmarks invokes on_clear_bookmarks when the user confirms."""
+    fake = _make_fake_dialog_with_callbacks(tmp_path)
+
+    with (
+        patch("rbcopy.gui.preferences_dialog.messagebox.askyesno", return_value=True),
+        patch("rbcopy.gui.preferences_dialog.messagebox.showinfo"),
+    ):
+        fake._on_reset_bookmarks()
+
+    fake._on_clear_bookmarks.assert_called_once()
+
+
+def test_on_reset_bookmarks_shows_info_after_clearing(tmp_path: Path) -> None:
+    """_on_reset_bookmarks shows a success info dialog after clearing bookmarks."""
+    fake = _make_fake_dialog_with_callbacks(tmp_path)
+
+    with (
+        patch("rbcopy.gui.preferences_dialog.messagebox.askyesno", return_value=True),
+        patch("rbcopy.gui.preferences_dialog.messagebox.showinfo") as mock_info,
+    ):
+        fake._on_reset_bookmarks()
+
+    mock_info.assert_called_once()
+
+
+def test_on_reset_bookmarks_does_not_clear_when_cancelled(tmp_path: Path) -> None:
+    """_on_reset_bookmarks does nothing when the user cancels the confirmation dialog."""
+    fake = _make_fake_dialog_with_callbacks(tmp_path)
+
+    with patch("rbcopy.gui.preferences_dialog.messagebox.askyesno", return_value=False):
+        fake._on_reset_bookmarks()
+
+    fake._on_clear_bookmarks.assert_not_called()
+
+
+def test_on_reset_bookmarks_noop_when_callback_is_none() -> None:
+    """_on_reset_bookmarks is a no-op when _on_clear_bookmarks is None."""
+    from rbcopy.gui.preferences_dialog import _PreferencesDialog
+
+    fake: MagicMock = MagicMock()
+    fake._on_clear_bookmarks = None
+    fake._on_reset_bookmarks = types.MethodType(_PreferencesDialog._on_reset_bookmarks, fake)
+
+    # Must not raise.
+    fake._on_reset_bookmarks()

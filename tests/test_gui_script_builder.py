@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import tkinter as tk
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
+
+from rbcopy.gui import RobocopyGUI
+from tests.helpers import make_fake_self as _make_fake_self
 
 # ---------------------------------------------------------------------------
 # _ScriptExportDialog._on_save tests
@@ -229,3 +234,116 @@ def test_on_save_rejects_subdirectory_in_name(tmp_path: Path) -> None:
     mock_warn.assert_called_once()
     assert not any(tmp_path.iterdir()), "No file should be written for a name with a subdirectory component"
     assert fake._saved is False
+
+
+# ---------------------------------------------------------------------------
+# Script Builder – _script_builder_var initialisation
+# ---------------------------------------------------------------------------
+
+
+def test_script_builder_var_initialized_before_build_ui() -> None:
+    """_script_builder_var must be set on self *at runtime* before _build_ui() is entered."""
+    captured: list[bool] = []
+
+    def spy_build_ui(self: Any) -> None:
+        captured.append(hasattr(self, "_script_builder_var"))
+
+    with (
+        patch.object(tk.Tk, "__init__", return_value=None),
+        patch.object(tk.Tk, "title"),
+        patch.object(tk.Tk, "resizable"),
+        patch.object(tk.Tk, "minsize"),
+        patch.object(tk.Tk, "protocol"),
+        patch("rbcopy.gui.main_window.ttk.Style"),
+        patch("rbcopy.gui.main_window.tk.BooleanVar"),
+        patch("rbcopy.gui.main_window.tk.StringVar"),
+        patch.object(RobocopyGUI, "_build_ui", spy_build_ui),
+        patch.object(RobocopyGUI, "_apply_preferences"),
+        patch.object(RobocopyGUI, "_init_dnd"),
+        patch.object(RobocopyGUI, "_poll_output"),
+        patch.object(RobocopyGUI, "_restore_geometry"),
+    ):
+        RobocopyGUI()
+
+    assert captured == [True], "_script_builder_var must be assigned before _build_ui() is called"
+
+
+def test_file_filter_vars_initialized_before_build_ui() -> None:
+    """_file_filter_enabled_var and _file_filter_var must be set before _build_ui() is entered."""
+    captured: list[bool] = []
+
+    def spy_build_ui(self: Any) -> None:
+        captured.append(hasattr(self, "_file_filter_enabled_var") and hasattr(self, "_file_filter_var"))
+
+    with (
+        patch.object(tk.Tk, "__init__", return_value=None),
+        patch.object(tk.Tk, "title"),
+        patch.object(tk.Tk, "resizable"),
+        patch.object(tk.Tk, "minsize"),
+        patch.object(tk.Tk, "protocol"),
+        patch("rbcopy.gui.main_window.ttk.Style"),
+        patch("rbcopy.gui.main_window.tk.BooleanVar"),
+        patch("rbcopy.gui.main_window.tk.StringVar"),
+        patch.object(RobocopyGUI, "_build_ui", spy_build_ui),
+        patch.object(RobocopyGUI, "_apply_preferences"),
+        patch.object(RobocopyGUI, "_init_dnd"),
+        patch.object(RobocopyGUI, "_poll_output"),
+        patch.object(RobocopyGUI, "_restore_geometry"),
+    ):
+        RobocopyGUI()
+
+    assert captured == [True], "_file_filter vars must be assigned before _build_ui() is called"
+
+
+# ---------------------------------------------------------------------------
+# Script Builder – _run behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_run_calls_export_script_when_script_builder_enabled() -> None:
+    """_run must call _export_script (not start a thread) when Script Builder is on."""
+    from rbcopy.builder import DryRunResult
+
+    fake_self = _make_fake_self()
+    fake_self._build_command.return_value = ["robocopy", "C:/src", "C:/dst"]
+    fake_self._script_builder_var.get.return_value = True
+
+    with patch("rbcopy.gui.main_window.validate_command", return_value=DryRunResult(ok=True)):
+        with patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls:
+            RobocopyGUI._run(fake_self)
+
+    mock_thread_cls.assert_not_called()
+    fake_self._export_script.assert_called_once_with(["robocopy", "C:/src", "C:/dst"])
+
+
+def test_run_does_not_call_export_script_when_script_builder_disabled() -> None:
+    """_run must start a thread (not call _export_script) when Script Builder is off."""
+    from rbcopy.builder import DryRunResult
+
+    fake_self = _make_fake_self()
+    fake_self._build_command.return_value = ["robocopy", "C:/src", "C:/dst"]
+
+    with patch("rbcopy.gui.main_window.validate_command", return_value=DryRunResult(ok=True)):
+        with patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls:
+            mock_thread = MagicMock()
+            mock_thread_cls.return_value = mock_thread
+            RobocopyGUI._run(fake_self)
+
+    mock_thread_cls.assert_called_once()
+    fake_self._export_script.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Script Builder – _export_script
+# ---------------------------------------------------------------------------
+
+
+def test_export_script_opens_dialog() -> None:
+    """_export_script must open a _ScriptExportDialog with self and the command."""
+    fake_self = _make_fake_self()
+    cmd = ["robocopy", "C:/src", "C:/dst"]
+
+    with patch("rbcopy.gui.main_window._ScriptExportDialog") as mock_dialog:
+        RobocopyGUI._export_script(fake_self, cmd)
+
+    mock_dialog.assert_called_once_with(fake_self, cmd)
