@@ -249,3 +249,73 @@ def test_apply_preset_preserves_forced_flags_when_props_only_active(gui: Robocop
             assert gui._flag_vars[flag].get() is True, (
                 f"Forced flag {flag!r} must remain True after preset application when Properties Only is active"
             )
+
+
+# ---------------------------------------------------------------------------
+# Gap 14: Additional supersession rules
+# ---------------------------------------------------------------------------
+
+
+def test_zb_disables_z_checkbutton(gui: RobocopyGUI) -> None:
+    """/ZB active must grey out the /Z checkbutton."""
+    gui._flag_vars["/ZB"].set(True)
+    gui._refresh_widget_states()
+
+    assert gui._flag_cbs["/Z"].instate(["disabled"]), "/Z must be disabled when /ZB is active"
+
+
+def test_zb_disables_b_checkbutton(gui: RobocopyGUI) -> None:
+    """/ZB active must grey out the /B checkbutton."""
+    gui._flag_vars["/ZB"].set(True)
+    gui._refresh_widget_states()
+
+    assert gui._flag_cbs["/B"].instate(["disabled"]), "/B must be disabled when /ZB is active"
+
+
+def test_zb_reenables_z_when_unchecked(gui: RobocopyGUI) -> None:
+    """Unchecking /ZB must re-enable the /Z checkbutton."""
+    gui._flag_vars["/ZB"].set(True)
+    gui._refresh_widget_states()
+    gui._flag_vars["/ZB"].set(False)
+    gui._refresh_widget_states()
+
+    assert not gui._flag_cbs["/Z"].instate(["disabled"]), "/Z must be re-enabled when /ZB is unchecked"
+
+
+def test_zb_reenables_b_when_unchecked(gui: RobocopyGUI) -> None:
+    """Unchecking /ZB must re-enable the /B checkbutton."""
+    gui._flag_vars["/ZB"].set(True)
+    gui._refresh_widget_states()
+    gui._flag_vars["/ZB"].set(False)
+    gui._refresh_widget_states()
+
+    assert not gui._flag_cbs["/B"].instate(["disabled"]), "/B must be re-enabled when /ZB is unchecked"
+
+
+def test_move_disables_mov_checkbutton(gui: RobocopyGUI) -> None:
+    """/MOVE active must grey out the /MOV checkbutton."""
+    gui._flag_vars["/MOVE"].set(True)
+    gui._refresh_widget_states()
+
+    assert gui._flag_cbs["/MOV"].instate(["disabled"]), "/MOV must be disabled when /MOVE is active"
+
+
+def test_move_reenables_mov_when_unchecked(gui: RobocopyGUI) -> None:
+    """Unchecking /MOVE must re-enable the /MOV checkbutton."""
+    gui._flag_vars["/MOVE"].set(True)
+    gui._refresh_widget_states()
+    gui._flag_vars["/MOVE"].set(False)
+    gui._refresh_widget_states()
+
+    assert not gui._flag_cbs["/MOV"].instate(["disabled"]), "/MOV must be re-enabled when /MOVE is unchecked"
+
+
+def test_mir_supersession_does_not_affect_zb_state(gui: RobocopyGUI) -> None:
+    """/MIR supersession must not change the /ZB checkbutton state."""
+    gui._flag_vars["/ZB"].set(True)
+    gui._flag_vars["/MIR"].set(True)
+    gui._refresh_widget_states()
+
+    # /ZB is not superseded by /MIR – it must remain normally interactive
+    # (its own superseded children /Z and /B should still be disabled by /ZB).
+    assert not gui._flag_cbs["/ZB"].instate(["disabled"]), "/ZB must not be disabled by /MIR"

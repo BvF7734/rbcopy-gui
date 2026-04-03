@@ -2878,3 +2878,1030 @@ def test_import_file_filter_handles_unicode_decode_error(tmp_path: Path) -> None
 
     mock_err.assert_called_once()
     fake._file_filter_var.set.assert_not_called()
+
+
+# ===========================================================================
+# Regression-test gaps: added in batch
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Gap 1: _confirm_destructive_operation – standalone function
+# ---------------------------------------------------------------------------
+
+
+def test_confirm_destructive_op_returns_true_for_empty_dst() -> None:
+    """Returns True immediately when the destination string is empty."""
+    from rbcopy.gui.main_window import _confirm_destructive_operation
+
+    result = _confirm_destructive_operation("", {"/MIR": True})
+
+    assert result is True
+
+
+def test_confirm_destructive_op_returns_true_for_whitespace_dst() -> None:
+    """Returns True when the destination is whitespace only (treated as empty)."""
+    from rbcopy.gui.main_window import _confirm_destructive_operation
+
+    result = _confirm_destructive_operation("   ", {"/MIR": True})
+
+    assert result is True
+
+
+def test_confirm_destructive_op_returns_true_when_dst_does_not_exist(tmp_path: Path) -> None:
+    """Returns True when the destination path does not exist on disk."""
+    from rbcopy.gui.main_window import _confirm_destructive_operation
+
+    missing = tmp_path / "nonexistent_dir"
+
+    result = _confirm_destructive_operation(str(missing), {"/MIR": True})
+
+    assert result is True
+
+
+def test_confirm_destructive_op_returns_true_when_dst_is_empty_dir(tmp_path: Path) -> None:
+    """Returns True when the destination exists but is completely empty."""
+    from rbcopy.gui.main_window import _confirm_destructive_operation
+
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+
+    result = _confirm_destructive_operation(str(empty_dir), {"/MIR": True})
+
+    assert result is True
+
+
+def test_confirm_destructive_op_returns_true_when_no_destructive_flag(tmp_path: Path) -> None:
+    """Returns True when destination has content but no destructive flag is active."""
+    from rbcopy.gui.main_window import _confirm_destructive_operation
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    (dst / "existing.txt").write_text("data", encoding="utf-8")
+
+    result = _confirm_destructive_operation(str(dst), {"/E": True, "/MIR": False})
+
+    assert result is True
+
+
+def test_confirm_destructive_op_shows_dialog_and_returns_false_on_no(tmp_path: Path) -> None:
+    """Shows a warning dialog and returns False when user declines /MIR on non-empty dst."""
+    from rbcopy.gui.main_window import _confirm_destructive_operation
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    (dst / "existing.txt").write_text("data", encoding="utf-8")
+
+    with patch("rbcopy.gui.main_window.messagebox.askyesno", return_value=False) as mock_ask:
+        result = _confirm_destructive_operation(str(dst), {"/MIR": True})
+
+    mock_ask.assert_called_once()
+    assert result is False
+
+
+def test_confirm_destructive_op_shows_dialog_and_returns_true_on_yes(tmp_path: Path) -> None:
+    """Returns True when user confirms the destructive operation."""
+    from rbcopy.gui.main_window import _confirm_destructive_operation
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    (dst / "existing.txt").write_text("data", encoding="utf-8")
+
+    with patch("rbcopy.gui.main_window.messagebox.askyesno", return_value=True):
+        result = _confirm_destructive_operation(str(dst), {"/MIR": True})
+
+    assert result is True
+
+
+def test_confirm_destructive_op_purge_flag_triggers_dialog(tmp_path: Path) -> None:
+    """Shows the warning dialog when /PURGE is active and destination has content."""
+    from rbcopy.gui.main_window import _confirm_destructive_operation
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    (dst / "existing.txt").write_text("data", encoding="utf-8")
+
+    with patch("rbcopy.gui.main_window.messagebox.askyesno", return_value=False) as mock_ask:
+        result = _confirm_destructive_operation(str(dst), {"/PURGE": True})
+
+    mock_ask.assert_called_once()
+    assert result is False
+
+
+def test_confirm_destructive_op_uses_no_as_default(tmp_path: Path) -> None:
+    """The askyesno call uses messagebox.NO as the default (safety pre-selected)."""
+    from tkinter import messagebox as tkinter_messagebox
+
+    from rbcopy.gui.main_window import _confirm_destructive_operation
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    (dst / "existing.txt").write_text("data", encoding="utf-8")
+
+    with patch("rbcopy.gui.main_window.messagebox.askyesno", return_value=False) as mock_ask:
+        _confirm_destructive_operation(str(dst), {"/MIR": True})
+
+    call_kwargs = mock_ask.call_args.kwargs
+    assert call_kwargs.get("default") == tkinter_messagebox.NO
+
+
+def test_confirm_destructive_op_passes_parent_to_dialog(tmp_path: Path) -> None:
+    """The parent kwarg is forwarded to messagebox.askyesno when provided."""
+    from rbcopy.gui.main_window import _confirm_destructive_operation
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    (dst / "existing.txt").write_text("data", encoding="utf-8")
+    mock_parent = MagicMock()
+
+    with patch("rbcopy.gui.main_window.messagebox.askyesno", return_value=True) as mock_ask:
+        _confirm_destructive_operation(str(dst), {"/MIR": True}, parent=mock_parent)
+
+    call_kwargs = mock_ask.call_args.kwargs
+    assert call_kwargs.get("parent") is mock_parent
+
+
+# ---------------------------------------------------------------------------
+# Gap 2: _get_selections and _build_command (real implementations)
+# ---------------------------------------------------------------------------
+
+
+def test_get_selections_returns_flag_dict() -> None:
+    """_get_selections mirrors the current BooleanVar values into a dict."""
+    fake = _make_fake_self()
+    mir_var = MagicMock()
+    mir_var.get.return_value = True
+    e_var = MagicMock()
+    e_var.get.return_value = False
+    fake._flag_vars = {"/MIR": mir_var, "/E": e_var}
+    fake._param_vars = {}
+
+    flag_sel, param_sel = RobocopyGUI._get_selections(fake)
+
+    assert flag_sel == {"/MIR": True, "/E": False}
+    assert param_sel == {}
+
+
+def test_get_selections_returns_param_tuples() -> None:
+    """_get_selections returns (enabled, value) tuples for all param vars."""
+    fake = _make_fake_self()
+    fake._flag_vars = {}
+    r_enabled = MagicMock()
+    r_enabled.get.return_value = True
+    r_value = MagicMock()
+    r_value.get.return_value = "3"
+    w_enabled = MagicMock()
+    w_enabled.get.return_value = False
+    w_value = MagicMock()
+    w_value.get.return_value = "30"
+    fake._param_vars = {
+        "/R": (r_enabled, r_value, MagicMock()),
+        "/W": (w_enabled, w_value, MagicMock()),
+    }
+
+    flag_sel, param_sel = RobocopyGUI._get_selections(fake)
+
+    assert flag_sel == {}
+    assert param_sel == {"/R": (True, "3"), "/W": (False, "30")}
+
+
+def test_build_command_calls_through_to_build_command() -> None:
+    """_build_command assembles the robocopy command from src/dst/flags/params."""
+    from rbcopy.builder import build_command as real_build_command
+
+    fake = _make_fake_self()
+    fake.src_var.get.return_value = "C:/src"
+    fake.dst_var.get.return_value = "C:/dst"
+    fake._get_selections.return_value = ({"/MIR": True}, {})
+    fake._file_filter_enabled_var.get.return_value = False
+    fake._file_filter_var.get.return_value = ""
+
+    with patch("rbcopy.gui.main_window.build_command", wraps=real_build_command) as mock_bc:
+        cmd = RobocopyGUI._build_command(fake)
+
+    mock_bc.assert_called_once_with("C:/src", "C:/dst", {"/MIR": True}, {}, file_filter="")
+    assert cmd == ["robocopy", "C:/src", "C:/dst", "/MIR"]
+
+
+def test_build_command_passes_empty_file_filter_when_disabled() -> None:
+    """_build_command passes file_filter='' when the filter checkbox is unchecked."""
+    fake = _make_fake_self()
+    fake.src_var.get.return_value = "C:/src"
+    fake.dst_var.get.return_value = "C:/dst"
+    fake._get_selections.return_value = ({}, {})
+    fake._file_filter_enabled_var.get.return_value = False
+    fake._file_filter_var.get.return_value = "*.img"  # value present but checkbox off
+
+    with patch("rbcopy.gui.main_window.build_command") as mock_bc:
+        mock_bc.return_value = ["robocopy", "C:/src", "C:/dst"]
+        RobocopyGUI._build_command(fake)
+
+    call_kwargs = mock_bc.call_args.kwargs
+    assert call_kwargs.get("file_filter") == ""
+
+
+def test_build_command_passes_file_filter_when_enabled() -> None:
+    """_build_command passes the filter value when the filter checkbox is checked."""
+    fake = _make_fake_self()
+    fake.src_var.get.return_value = "C:/src"
+    fake.dst_var.get.return_value = "C:/dst"
+    fake._get_selections.return_value = ({}, {})
+    fake._file_filter_enabled_var.get.return_value = True
+    fake._file_filter_var.get.return_value = "*.img *.raw"
+
+    with patch("rbcopy.gui.main_window.build_command") as mock_bc:
+        mock_bc.return_value = ["robocopy", "C:/src", "C:/dst"]
+        RobocopyGUI._build_command(fake)
+
+    call_kwargs = mock_bc.call_args.kwargs
+    assert call_kwargs.get("file_filter") == "*.img *.raw"
+
+
+# ---------------------------------------------------------------------------
+# Gap 3: _browse_src / _browse_dst
+# ---------------------------------------------------------------------------
+
+
+def test_browse_src_updates_var_when_path_chosen() -> None:
+    """_browse_src sets src_var to the chosen directory path."""
+    fake = _make_fake_self()
+
+    with patch("rbcopy.gui.main_window.filedialog.askdirectory", return_value="/chosen/src"):
+        RobocopyGUI._browse_src(fake)
+
+    fake.src_var.set.assert_called_once_with("/chosen/src")
+
+
+def test_browse_src_does_nothing_when_cancelled() -> None:
+    """_browse_src leaves src_var untouched when the dialog is cancelled."""
+    fake = _make_fake_self()
+
+    with patch("rbcopy.gui.main_window.filedialog.askdirectory", return_value=""):
+        RobocopyGUI._browse_src(fake)
+
+    fake.src_var.set.assert_not_called()
+
+
+def test_browse_dst_updates_var_when_path_chosen() -> None:
+    """_browse_dst sets dst_var to the chosen directory path."""
+    fake = _make_fake_self()
+
+    with patch("rbcopy.gui.main_window.filedialog.askdirectory", return_value="D:/chosen/dst"):
+        RobocopyGUI._browse_dst(fake)
+
+    fake.dst_var.set.assert_called_once_with("D:/chosen/dst")
+
+
+def test_browse_dst_does_nothing_when_cancelled() -> None:
+    """_browse_dst leaves dst_var untouched when the dialog is cancelled."""
+    fake = _make_fake_self()
+
+    with patch("rbcopy.gui.main_window.filedialog.askdirectory", return_value=""):
+        RobocopyGUI._browse_dst(fake)
+
+    fake.dst_var.set.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Gap 4: _bookmark_field
+# ---------------------------------------------------------------------------
+
+
+def test_bookmark_field_source_saves_path(tmp_path: Path) -> None:
+    """_bookmark_field saves the source path as a named bookmark."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake.src_var.get.return_value = "C:/source"
+    fake._bookmarks_store = BookmarksStore(path=tmp_path / "bm.json")
+
+    with patch("rbcopy.gui.main_window.simpledialog.askstring", return_value="My Source"):
+        RobocopyGUI._bookmark_field(fake, "source")
+
+    saved = fake._bookmarks_store.get_bookmark("My Source")
+    assert saved is not None
+    assert saved.path == "C:/source"
+
+
+def test_bookmark_field_destination_saves_path(tmp_path: Path) -> None:
+    """_bookmark_field saves the destination path as a named bookmark."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake.dst_var.get.return_value = "D:/dest"
+    fake._bookmarks_store = BookmarksStore(path=tmp_path / "bm.json")
+
+    with patch("rbcopy.gui.main_window.simpledialog.askstring", return_value="My Dest"):
+        RobocopyGUI._bookmark_field(fake, "destination")
+
+    saved = fake._bookmarks_store.get_bookmark("My Dest")
+    assert saved is not None
+    assert saved.path == "D:/dest"
+
+
+def test_bookmark_field_does_nothing_when_name_cancelled() -> None:
+    """_bookmark_field is a no-op when the name dialog is cancelled (returns None)."""
+    fake = _make_fake_self()
+    fake.src_var.get.return_value = "C:/source"
+
+    with patch("rbcopy.gui.main_window.simpledialog.askstring", return_value=None):
+        RobocopyGUI._bookmark_field(fake, "source")
+
+    fake._rebuild_bookmarks_menu.assert_not_called()
+
+
+def test_bookmark_field_shows_error_when_path_empty(tmp_path: Path) -> None:
+    """_bookmark_field shows an error dialog when the field path is empty."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake.src_var.get.return_value = ""  # empty path
+    fake._bookmarks_store = BookmarksStore(path=tmp_path / "bm.json")
+
+    with (
+        patch("rbcopy.gui.main_window.simpledialog.askstring", return_value="My Bookmark"),
+        patch("rbcopy.gui.main_window.messagebox.showerror") as mock_err,
+    ):
+        RobocopyGUI._bookmark_field(fake, "source")
+
+    mock_err.assert_called_once()
+    fake._rebuild_bookmarks_menu.assert_not_called()
+
+
+def test_bookmark_field_rebuilds_menu_after_save(tmp_path: Path) -> None:
+    """_bookmark_field calls _rebuild_bookmarks_menu after successfully saving."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake.src_var.get.return_value = "C:/source"
+    fake._bookmarks_store = BookmarksStore(path=tmp_path / "bm.json")
+
+    with patch("rbcopy.gui.main_window.simpledialog.askstring", return_value="My Source"):
+        RobocopyGUI._bookmark_field(fake, "source")
+
+    fake._rebuild_bookmarks_menu.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Gap 5: _rebuild_bookmarks_menu – full menu shape
+# ---------------------------------------------------------------------------
+
+
+def test_rebuild_bookmarks_menu_adds_cascade_for_each_bookmark() -> None:
+    """_rebuild_bookmarks_menu adds a cascade entry for each saved bookmark."""
+    from rbcopy.bookmarks import Bookmark, BookmarksStore
+
+    fake = _make_fake_self()
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+    fake._bookmarks_store.get_bookmarks.return_value = [
+        Bookmark(name="Work NAS", path=r"\\nas\work"),
+        Bookmark(name="Backup", path=r"D:\backup"),
+    ]
+    fake._bookmarks_menu = MagicMock()
+
+    with patch("rbcopy.gui.main_window.tk.Menu", return_value=MagicMock()):
+        RobocopyGUI._rebuild_bookmarks_menu(fake)
+
+    cascade_labels = [call.kwargs["label"] for call in fake._bookmarks_menu.add_cascade.call_args_list]
+    assert "Work NAS" in cascade_labels
+    assert "Backup" in cascade_labels
+
+
+def test_rebuild_bookmarks_menu_submenu_has_source_and_destination() -> None:
+    """Each bookmark submenu has 'Set as source' and 'Set as destination' commands."""
+    from rbcopy.bookmarks import Bookmark, BookmarksStore
+
+    fake = _make_fake_self()
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+    fake._bookmarks_store.get_bookmarks.return_value = [Bookmark(name="A", path="C:/path")]
+    fake._bookmarks_menu = MagicMock()
+
+    sub_mock = MagicMock()
+    with patch("rbcopy.gui.main_window.tk.Menu", return_value=sub_mock):
+        RobocopyGUI._rebuild_bookmarks_menu(fake)
+
+    submenu_labels = [call.kwargs["label"] for call in sub_mock.add_command.call_args_list]
+    assert "Set as source" in submenu_labels
+    assert "Set as destination" in submenu_labels
+
+
+def test_rebuild_bookmarks_menu_adds_separator() -> None:
+    """_rebuild_bookmarks_menu adds at least one separator between sections."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+    fake._bookmarks_store.get_bookmarks.return_value = []
+    fake._bookmarks_menu = MagicMock()
+
+    RobocopyGUI._rebuild_bookmarks_menu(fake)
+
+    assert fake._bookmarks_menu.add_separator.call_count >= 1
+
+
+def test_rebuild_bookmarks_menu_placeholder_when_empty() -> None:
+    """_rebuild_bookmarks_menu adds a disabled placeholder when no bookmarks exist."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+    fake._bookmarks_store.get_bookmarks.return_value = []
+    fake._bookmarks_menu = MagicMock()
+
+    RobocopyGUI._rebuild_bookmarks_menu(fake)
+
+    disabled_calls = [
+        call for call in fake._bookmarks_menu.add_command.call_args_list if call.kwargs.get("state") == "disabled"
+    ]
+    assert len(disabled_calls) == 1
+
+
+def test_rebuild_bookmarks_menu_clears_existing_entries() -> None:
+    """_rebuild_bookmarks_menu deletes all old entries before repopulating."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+    fake._bookmarks_store.get_bookmarks.return_value = []
+    fake._bookmarks_menu = MagicMock()
+
+    RobocopyGUI._rebuild_bookmarks_menu(fake)
+
+    fake._bookmarks_menu.delete.assert_called_once_with(0, "end")
+
+
+# ---------------------------------------------------------------------------
+# Gap 6: _refresh_path_dropdowns
+# ---------------------------------------------------------------------------
+
+
+def test_refresh_path_dropdowns_sets_src_entry_values() -> None:
+    """_refresh_path_dropdowns sets _src_entry['values'] from path history sources."""
+    from rbcopy.path_history import PathHistoryStore
+
+    fake = _make_fake_self()
+    ph = MagicMock(spec=PathHistoryStore)
+    ph.get_source_paths.return_value = ["C:/src1", "C:/src2"]
+    ph.get_destination_paths.return_value = []
+    fake._path_history = ph
+
+    RobocopyGUI._refresh_path_dropdowns(fake)
+
+    fake._src_entry.__setitem__.assert_any_call("values", ["C:/src1", "C:/src2"])
+
+
+def test_refresh_path_dropdowns_sets_dst_entry_values() -> None:
+    """_refresh_path_dropdowns sets _dst_entry['values'] from path history destinations."""
+    from rbcopy.path_history import PathHistoryStore
+
+    fake = _make_fake_self()
+    ph = MagicMock(spec=PathHistoryStore)
+    ph.get_source_paths.return_value = []
+    ph.get_destination_paths.return_value = ["D:/dst1", "D:/dst2"]
+    fake._path_history = ph
+
+    RobocopyGUI._refresh_path_dropdowns(fake)
+
+    fake._dst_entry.__setitem__.assert_any_call("values", ["D:/dst1", "D:/dst2"])
+
+
+# ---------------------------------------------------------------------------
+# Gap 7: _on_properties_only_toggle (unit level without live GUI)
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_self_for_props_only() -> MagicMock:
+    """Return a fake self with full flag/param setup for properties-only tests."""
+    from rbcopy.builder import PROPERTIES_ONLY_FLAGS, PROPERTIES_ONLY_PARAMS
+
+    fake = _make_fake_self()
+    fake._is_applying_preset = False
+    fake._saved_dst = ""
+    fake._saved_flags: dict = {}
+    fake._saved_params: dict = {}
+
+    # Use real dicts so iteration and item assignment work correctly.
+    fake._flag_vars = {}
+    fake._param_vars = {}
+
+    for flag in PROPERTIES_ONLY_FLAGS:
+        var = MagicMock()
+        var.get.return_value = False
+        fake._flag_vars[flag] = var
+
+    for flag in PROPERTIES_ONLY_PARAMS:
+        ev = MagicMock()
+        ev.get.return_value = False
+        vv = MagicMock()
+        vv.get.return_value = ""
+        fake._param_vars[flag] = (ev, vv, MagicMock())
+
+    fake.dst_var.get.return_value = "C:/original"
+    return fake
+
+
+def test_on_properties_only_toggle_activation_saves_dst() -> None:
+    """Activating Properties Only saves the current dst_var value."""
+    fake = _make_fake_self_for_props_only()
+    fake._props_only_var.get.return_value = True
+
+    RobocopyGUI._on_properties_only_toggle(fake)
+
+    assert fake._saved_dst == "C:/original"
+
+
+def test_on_properties_only_toggle_activation_overrides_dst() -> None:
+    """Activating Properties Only sets dst_var to PROPERTIES_ONLY_DST."""
+    from rbcopy.builder import PROPERTIES_ONLY_DST
+
+    fake = _make_fake_self_for_props_only()
+    fake._props_only_var.get.return_value = True
+
+    RobocopyGUI._on_properties_only_toggle(fake)
+
+    fake.dst_var.set.assert_called_with(PROPERTIES_ONLY_DST)
+
+
+def test_on_properties_only_toggle_activation_sets_forced_flags() -> None:
+    """Activating Properties Only sets every PROPERTIES_ONLY_FLAGS var to True."""
+    from rbcopy.builder import PROPERTIES_ONLY_FLAGS
+
+    fake = _make_fake_self_for_props_only()
+    fake._props_only_var.get.return_value = True
+
+    RobocopyGUI._on_properties_only_toggle(fake)
+
+    for flag in PROPERTIES_ONLY_FLAGS:
+        if flag in fake._flag_vars:
+            fake._flag_vars[flag].set.assert_called_with(True)
+
+
+def test_on_properties_only_toggle_activation_sets_forced_params() -> None:
+    """Activating Properties Only sets every PROPERTIES_ONLY_PARAMS value to forced value."""
+    from rbcopy.builder import PROPERTIES_ONLY_PARAMS
+
+    fake = _make_fake_self_for_props_only()
+    fake._props_only_var.get.return_value = True
+
+    RobocopyGUI._on_properties_only_toggle(fake)
+
+    for flag, forced_value in PROPERTIES_ONLY_PARAMS.items():
+        if flag in fake._param_vars:
+            _ev, vv, _ = fake._param_vars[flag]
+            vv.set.assert_called_with(forced_value)
+
+
+def test_on_properties_only_toggle_activation_calls_refresh() -> None:
+    """Activating Properties Only calls _refresh_widget_states afterwards."""
+    fake = _make_fake_self_for_props_only()
+    fake._props_only_var.get.return_value = True
+
+    RobocopyGUI._on_properties_only_toggle(fake)
+
+    fake._refresh_widget_states.assert_called_once()
+
+
+def test_on_properties_only_toggle_deactivation_restores_dst() -> None:
+    """Deactivating Properties Only restores the previously-saved dst."""
+    fake = _make_fake_self_for_props_only()
+    fake._props_only_var.get.return_value = False
+    fake._saved_dst = "C:/original"
+    fake._saved_flags = {}
+    fake._saved_params = {}
+
+    RobocopyGUI._on_properties_only_toggle(fake)
+
+    fake.dst_var.set.assert_called_with("C:/original")
+
+
+def test_on_properties_only_toggle_deactivation_restores_saved_flags() -> None:
+    """Deactivating Properties Only restores previously-saved flag values."""
+    from rbcopy.builder import PROPERTIES_ONLY_FLAGS
+
+    fake = _make_fake_self_for_props_only()
+    forced_flag = next(iter(PROPERTIES_ONLY_FLAGS))
+    fake._props_only_var.get.return_value = False
+    fake._saved_dst = ""
+    fake._saved_flags = {forced_flag: False}
+    fake._saved_params = {}
+
+    RobocopyGUI._on_properties_only_toggle(fake)
+
+    fake._flag_vars[forced_flag].set.assert_called_with(False)
+
+
+def test_on_properties_only_toggle_deactivation_with_no_saved_state() -> None:
+    """Deactivating Properties Only is safe even when saved state is empty."""
+    fake = _make_fake_self_for_props_only()
+    fake._props_only_var.get.return_value = False
+    fake._saved_dst = ""
+    fake._saved_flags = {}
+    fake._saved_params = {}
+
+    # Must not raise.
+    RobocopyGUI._on_properties_only_toggle(fake)
+
+
+# ---------------------------------------------------------------------------
+# Gap 8: _refresh_widget_states (unit level without live GUI)
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_self_for_refresh() -> MagicMock:
+    """Return a fake self wired for _refresh_widget_states tests."""
+    fake = _make_fake_self()
+    fake._is_applying_preset = False
+    fake._props_only_var.get.return_value = False
+    # Provide real dicts so iteration works correctly.
+    fake._flag_vars = {}
+    fake._flag_cbs = {}
+    fake._param_vars = {}
+    fake._param_cbs = {}
+    for flag in ["/MIR", "/E", "/PURGE", "/ZB", "/Z", "/B", "/MOVE", "/MOV", "/L"]:
+        var = MagicMock()
+        var.get.return_value = False
+        fake._flag_vars[flag] = var
+        fake._flag_cbs[flag] = MagicMock()
+    return fake
+
+
+def test_refresh_widget_states_disables_e_when_mir_active() -> None:
+    """With /MIR active, the /E checkbutton is configured as disabled."""
+    fake = _make_fake_self_for_refresh()
+    fake._flag_vars["/MIR"].get.return_value = True
+
+    RobocopyGUI._refresh_widget_states(fake)
+
+    fake._flag_cbs["/E"].config.assert_any_call(state="disabled")
+
+
+def test_refresh_widget_states_disables_purge_when_mir_active() -> None:
+    """With /MIR active, the /PURGE checkbutton is configured as disabled."""
+    fake = _make_fake_self_for_refresh()
+    fake._flag_vars["/MIR"].get.return_value = True
+
+    RobocopyGUI._refresh_widget_states(fake)
+
+    fake._flag_cbs["/PURGE"].config.assert_any_call(state="disabled")
+
+
+def test_refresh_widget_states_reenables_when_mir_inactive() -> None:
+    """With /MIR inactive, the /E and /PURGE checkbuttons are configured as normal."""
+    fake = _make_fake_self_for_refresh()
+    fake._flag_vars["/MIR"].get.return_value = False
+
+    RobocopyGUI._refresh_widget_states(fake)
+
+    fake._flag_cbs["/E"].config.assert_any_call(state="normal")
+    fake._flag_cbs["/PURGE"].config.assert_any_call(state="normal")
+
+
+def test_refresh_widget_states_disables_z_and_b_when_zb_active() -> None:
+    """With /ZB active, the /Z and /B checkbuttons are configured as disabled."""
+    fake = _make_fake_self_for_refresh()
+    fake._flag_vars["/ZB"].get.return_value = True
+
+    RobocopyGUI._refresh_widget_states(fake)
+
+    fake._flag_cbs["/Z"].config.assert_any_call(state="disabled")
+    fake._flag_cbs["/B"].config.assert_any_call(state="disabled")
+
+
+def test_refresh_widget_states_disables_mov_when_move_active() -> None:
+    """With /MOVE active, the /MOV checkbutton is configured as disabled."""
+    fake = _make_fake_self_for_refresh()
+    fake._flag_vars["/MOVE"].get.return_value = True
+
+    RobocopyGUI._refresh_widget_states(fake)
+
+    fake._flag_cbs["/MOV"].config.assert_any_call(state="disabled")
+
+
+def test_refresh_widget_states_early_return_when_applying_preset() -> None:
+    """_refresh_widget_states does nothing when _is_applying_preset is True."""
+    fake = _make_fake_self_for_refresh()
+    fake._is_applying_preset = True
+    fake._flag_vars["/MIR"].get.return_value = True  # would normally trigger disable
+
+    RobocopyGUI._refresh_widget_states(fake)
+
+    fake._flag_cbs["/E"].config.assert_not_called()
+
+
+def test_refresh_widget_states_disables_forced_flags_when_props_only() -> None:
+    """Properties Only forced flags are configured as disabled."""
+    from rbcopy.builder import PROPERTIES_ONLY_FLAGS
+
+    fake = _make_fake_self_for_refresh()
+    fake._props_only_var.get.return_value = True
+    for flag in PROPERTIES_ONLY_FLAGS:
+        if flag not in fake._flag_vars:
+            var = MagicMock()
+            var.get.return_value = False
+            fake._flag_vars[flag] = var
+            fake._flag_cbs[flag] = MagicMock()
+
+    RobocopyGUI._refresh_widget_states(fake)
+
+    for flag in PROPERTIES_ONLY_FLAGS:
+        if flag in fake._flag_cbs:
+            fake._flag_cbs[flag].config.assert_any_call(state="disabled")
+
+
+# ---------------------------------------------------------------------------
+# Gap 9: _on_file_filter_toggle
+# ---------------------------------------------------------------------------
+
+
+def test_on_file_filter_toggle_enables_entry_when_checked() -> None:
+    """_on_file_filter_toggle enables the file filter entry when the var is True."""
+    fake = _make_fake_self()
+    fake._file_filter_enabled_var.get.return_value = True
+
+    RobocopyGUI._on_file_filter_toggle(fake)
+
+    fake._file_filter_entry.config.assert_called_once_with(state="normal")
+
+
+def test_on_file_filter_toggle_disables_entry_when_unchecked() -> None:
+    """_on_file_filter_toggle disables the file filter entry when the var is False."""
+    fake = _make_fake_self()
+    fake._file_filter_enabled_var.get.return_value = False
+
+    RobocopyGUI._on_file_filter_toggle(fake)
+
+    fake._file_filter_entry.config.assert_called_once_with(state="disabled")
+
+
+# ---------------------------------------------------------------------------
+# Gap 10: _clear_path_history / _clear_bookmarks
+# ---------------------------------------------------------------------------
+
+
+def test_clear_path_history_calls_path_history_clear() -> None:
+    """_clear_path_history calls clear() on the path history store."""
+    from rbcopy.path_history import PathHistoryStore
+
+    fake = _make_fake_self()
+    fake._path_history = MagicMock(spec=PathHistoryStore)
+
+    RobocopyGUI._clear_path_history(fake)
+
+    fake._path_history.clear.assert_called_once()
+
+
+def test_clear_path_history_resets_src_entry_values() -> None:
+    """_clear_path_history sets _src_entry['values'] to an empty list."""
+    from rbcopy.path_history import PathHistoryStore
+
+    fake = _make_fake_self()
+    fake._path_history = MagicMock(spec=PathHistoryStore)
+
+    RobocopyGUI._clear_path_history(fake)
+
+    fake._src_entry.__setitem__.assert_any_call("values", [])
+
+
+def test_clear_path_history_resets_dst_entry_values() -> None:
+    """_clear_path_history sets _dst_entry['values'] to an empty list."""
+    from rbcopy.path_history import PathHistoryStore
+
+    fake = _make_fake_self()
+    fake._path_history = MagicMock(spec=PathHistoryStore)
+
+    RobocopyGUI._clear_path_history(fake)
+
+    fake._dst_entry.__setitem__.assert_any_call("values", [])
+
+
+def test_clear_bookmarks_calls_bookmarks_store_clear() -> None:
+    """_clear_bookmarks calls clear() on the bookmarks store."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+
+    RobocopyGUI._clear_bookmarks(fake)
+
+    fake._bookmarks_store.clear.assert_called_once()
+
+
+def test_clear_bookmarks_rebuilds_menu() -> None:
+    """_clear_bookmarks calls _rebuild_bookmarks_menu after clearing."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+
+    RobocopyGUI._clear_bookmarks(fake)
+
+    fake._rebuild_bookmarks_menu.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Gap 11: _get_preset_description_map
+# ---------------------------------------------------------------------------
+
+
+def test_get_preset_description_map_includes_properties_only() -> None:
+    """_get_preset_description_map always includes 'Properties Only' with a description."""
+    from rbcopy.presets import CustomPresetsStore
+
+    fake = _make_fake_self()
+    fake._presets_store = MagicMock(spec=CustomPresetsStore)
+    fake._presets_store.presets = []
+
+    result = RobocopyGUI._get_preset_description_map(fake)
+
+    assert "Properties Only" in result
+    assert result["Properties Only"]  # non-empty description
+
+
+def test_get_preset_description_map_includes_presets_with_description() -> None:
+    """_get_preset_description_map includes custom presets that have a description."""
+    from rbcopy.presets import CustomPreset, CustomPresetsStore
+
+    fake = _make_fake_self()
+    fake._presets_store = MagicMock(spec=CustomPresetsStore)
+    fake._presets_store.presets = [
+        CustomPreset(name="With Desc", description="Backs up docs nightly."),
+        CustomPreset(name="No Desc", description=""),
+    ]
+
+    result = RobocopyGUI._get_preset_description_map(fake)
+
+    assert "With Desc" in result
+    assert result["With Desc"] == "Backs up docs nightly."
+
+
+def test_get_preset_description_map_omits_presets_without_description() -> None:
+    """_get_preset_description_map omits custom presets with an empty description."""
+    from rbcopy.presets import CustomPreset, CustomPresetsStore
+
+    fake = _make_fake_self()
+    fake._presets_store = MagicMock(spec=CustomPresetsStore)
+    fake._presets_store.presets = [CustomPreset(name="No Desc", description="")]
+
+    result = RobocopyGUI._get_preset_description_map(fake)
+
+    assert "No Desc" not in result
+
+
+# ---------------------------------------------------------------------------
+# Gap 12: _flush_log_handlers / _get_current_log_file_path
+# ---------------------------------------------------------------------------
+
+
+def test_flush_log_handlers_flushes_file_handler(tmp_path: Path) -> None:
+    """_flush_log_handlers calls flush() on every FileHandler on the rbcopy logger."""
+    from rbcopy.gui.main_window import _flush_log_handlers
+
+    log_file = tmp_path / "test.log"
+    handler = logging.FileHandler(str(log_file))
+    rbcopy_logger = logging.getLogger("rbcopy")
+    rbcopy_logger.addHandler(handler)
+
+    try:
+        with patch.object(handler, "flush") as mock_flush:
+            _flush_log_handlers()
+        mock_flush.assert_called_once()
+    finally:
+        handler.close()
+        rbcopy_logger.removeHandler(handler)
+
+
+def test_flush_log_handlers_ignores_stream_handler() -> None:
+    """_flush_log_handlers does not call flush() on StreamHandlers."""
+    from rbcopy.gui.main_window import _flush_log_handlers
+
+    stream_handler = logging.StreamHandler()
+    rbcopy_logger = logging.getLogger("rbcopy")
+    rbcopy_logger.addHandler(stream_handler)
+
+    try:
+        with patch.object(stream_handler, "flush") as mock_flush:
+            _flush_log_handlers()
+        mock_flush.assert_not_called()
+    finally:
+        rbcopy_logger.removeHandler(stream_handler)
+
+
+def test_get_current_log_file_path_returns_path_when_file_handler(tmp_path: Path) -> None:
+    """_get_current_log_file_path returns the path of the FileHandler's log file."""
+    from rbcopy.gui.main_window import _get_current_log_file_path
+
+    log_file = tmp_path / "session.log"
+    handler = logging.FileHandler(str(log_file))
+    rbcopy_logger = logging.getLogger("rbcopy")
+    rbcopy_logger.addHandler(handler)
+
+    try:
+        result = _get_current_log_file_path()
+    finally:
+        handler.close()
+        rbcopy_logger.removeHandler(handler)
+
+    assert result == Path(handler.baseFilename)
+
+
+def test_get_current_log_file_path_returns_none_when_no_file_handler() -> None:
+    """_get_current_log_file_path returns None when no FileHandler is attached."""
+    from rbcopy.gui.main_window import _get_current_log_file_path
+
+    rbcopy_logger = logging.getLogger("rbcopy")
+    original_handlers = list(rbcopy_logger.handlers)
+    for h in original_handlers:
+        rbcopy_logger.removeHandler(h)
+
+    try:
+        result = _get_current_log_file_path()
+    finally:
+        for h in original_handlers:
+            rbcopy_logger.addHandler(h)
+
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Gap 13: _async_execute – notify and summary integration
+# ---------------------------------------------------------------------------
+
+
+def test_async_execute_calls_notify_job_complete() -> None:
+    """_async_execute calls notify_job_complete in the finally block after any job."""
+    fake_self = _make_fake_self()
+    mock_proc = make_mock_async_proc(returncode=1, output="some output\n", pid=42)
+
+    with patch("rbcopy.gui.main_window.asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
+        with patch("rbcopy.gui.main_window.notify_job_complete") as mock_notify:
+            with patch("rbcopy.gui.main_window._flush_log_handlers"):
+                with patch("rbcopy.gui.main_window._get_current_log_file_path", return_value=None):
+                    asyncio.run(RobocopyGUI._async_execute(fake_self, ["robocopy", "C:/s", "C:/d"]))
+
+    mock_notify.assert_called_once()
+
+
+def test_async_execute_notify_called_with_exit_code_message() -> None:
+    """notify_job_complete is called with a message matching the exit code label."""
+    from rbcopy.builder import exit_code_label
+
+    fake_self = _make_fake_self()
+    mock_proc = make_mock_async_proc(returncode=0, output="", pid=1)
+
+    with patch("rbcopy.gui.main_window.asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
+        with patch("rbcopy.gui.main_window.notify_job_complete") as mock_notify:
+            with patch("rbcopy.gui.main_window._flush_log_handlers"):
+                with patch("rbcopy.gui.main_window._get_current_log_file_path", return_value=None):
+                    asyncio.run(RobocopyGUI._async_execute(fake_self, ["robocopy", "C:/s", "C:/d"]))
+
+    call_kwargs = mock_notify.call_args.kwargs
+    assert call_kwargs["message"] == exit_code_label(0)
+
+
+def test_async_execute_notify_called_even_on_file_not_found() -> None:
+    """notify_job_complete is called even when robocopy is not found (uses exit code -1)."""
+    from rbcopy.builder import exit_code_label
+
+    fake_self = _make_fake_self()
+
+    with patch("rbcopy.gui.main_window.asyncio.create_subprocess_exec", new=AsyncMock(side_effect=FileNotFoundError)):
+        with patch("rbcopy.gui.main_window.notify_job_complete") as mock_notify:
+            asyncio.run(RobocopyGUI._async_execute(fake_self, ["robocopy", "C:/s", "C:/d"]))
+
+    mock_notify.assert_called_once()
+    call_kwargs = mock_notify.call_args.kwargs
+    assert call_kwargs["message"] == exit_code_label(-1)
+
+
+def test_async_execute_appends_summary_card_when_parse_succeeds(tmp_path: Path) -> None:
+    """_async_execute appends the formatted summary card to output when available."""
+    from rbcopy.robocopy_parser import RobocopySummary
+
+    fake_self = _make_fake_self()
+    mock_proc = make_mock_async_proc(returncode=1, output="output\n", pid=9)
+    summary = RobocopySummary(files_copied=5, files_skipped=2, files_failed=0)
+
+    with patch("rbcopy.gui.main_window.asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
+        with patch("rbcopy.gui.main_window.notify_job_complete"):
+            with patch("rbcopy.gui.main_window._flush_log_handlers"):
+                with patch("rbcopy.gui.main_window._get_current_log_file_path", return_value=tmp_path / "x.log"):
+                    with patch("rbcopy.gui.main_window.parse_summary_from_log", return_value=summary):
+                        asyncio.run(RobocopyGUI._async_execute(fake_self, ["robocopy", "C:/s", "C:/d"]))
+
+    all_output = " ".join(call.args[0] for call in fake_self._append_output.call_args_list)
+    assert "Job summary" in all_output
+
+
+def test_async_execute_skips_summary_card_when_parse_returns_none(tmp_path: Path) -> None:
+    """_async_execute does not append a summary card when parse_summary_from_log returns None."""
+    fake_self = _make_fake_self()
+    mock_proc = make_mock_async_proc(returncode=1, output="output\n", pid=10)
+
+    with patch("rbcopy.gui.main_window.asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
+        with patch("rbcopy.gui.main_window.notify_job_complete"):
+            with patch("rbcopy.gui.main_window._flush_log_handlers"):
+                with patch("rbcopy.gui.main_window._get_current_log_file_path", return_value=tmp_path / "x.log"):
+                    with patch("rbcopy.gui.main_window.parse_summary_from_log", return_value=None):
+                        asyncio.run(RobocopyGUI._async_execute(fake_self, ["robocopy", "C:/s", "C:/d"]))
+
+    all_output = " ".join(call.args[0] for call in fake_self._append_output.call_args_list)
+    assert "Job summary" not in all_output
