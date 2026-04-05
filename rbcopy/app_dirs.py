@@ -1,21 +1,24 @@
-"""Application directory resolution for RBCopy.
+"""Application directory resolution for GL_Tools applications.
 
 This module is the single source of truth for the data directory in which
 logs, presets, preferences, geometry, and all other persistent files are
-stored.  No other module in the package should hardcode a path under
-``~/.rbcopy`` or any similar literal — they must call :func:`get_data_dir`
-instead.
+stored.  No other module in the package should hardcode a path directly —
+they must call :func:`get_data_dir` instead.
 
-Resolution priority (first match wins):
+Resolution priority for the GL_Tools base directory (first match wins):
 
-1. ``RBCOPY_DATA_DIR`` environment variable — intended for CI, testing, and
-   power users who want a non-standard location without touching the UI.
-2. ``~/.rbcopy_location`` bootstrap pointer file — written by
+1. ``~/.gl_tools_location`` bootstrap pointer file — written by
    :func:`set_data_dir` when the user changes the data directory via
    *File -> Preferences -> Storage*.  This is the only file that lives
    permanently outside the configurable data directory.
-3. Platform default -- ``%LOCALAPPDATA%\\RBCopy`` on Windows,
-   ``~/.rbcopy`` on all other platforms.
+2. ``U:\\GL_Tools`` — used when the ``U:`` drive is available (e.g. a
+   network share or mapped drive used for shared team configuration).
+3. Platform default — ``%LOCALAPPDATA%\\GL_Tools`` on Windows,
+   ``~/.gl_tools`` on all other platforms.
+
+:func:`get_data_dir` accepts an *app_name* argument (e.g. ``'rbcopy'`` or
+``'loadv5'``) and returns ``{base_dir}/{app_name}``, creating that
+subdirectory if it does not already exist.
 
 Logs are stored in a ``logs/`` subdirectory of the data directory so that
 JSON configuration files and log files remain clearly separated.
@@ -29,62 +32,78 @@ import os
 import sys
 from pathlib import Path
 
-from rbcopy.conf.settings import Settings
-
 logger = logging.getLogger(__name__)
 
-_BOOTSTRAP_PATH: Path = Path.home() / ".rbcopy_location"
-_APP_DIR_NAME_WINDOWS: str = "RBCopy"
-_APP_DIR_NAME_UNIX: str = ".rbcopy"
+_BOOTSTRAP_PATH: Path = Path.home() / ".gl_tools_location"
+_NETWORK_DRIVE_BASE: Path = Path("U:/GL_Tools")
+_BASE_DIR_NAME_WINDOWS: str = "GL_Tools"
+_BASE_DIR_NAME_UNIX: str = ".gl_tools"
+
+
+def _u_drive_exists() -> bool:
+    """Return ``True`` when the ``U:\\`` drive is accessible on this system."""
+    if sys.platform != "win32":
+        return False
+    try:
+        return Path("U:/").exists()
+    except OSError:
+        return False
 
 
 def _platform_default() -> Path:
-    """Return the platform-appropriate default data directory."""
+    """Return the platform-appropriate default GL_Tools base directory."""
     if sys.platform == "win32":
         local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
         if local_app_data:
-            return Path(local_app_data) / _APP_DIR_NAME_WINDOWS
-        return Path.home() / _APP_DIR_NAME_WINDOWS
-    return Path.home() / _APP_DIR_NAME_UNIX
+            return Path(local_app_data) / _BASE_DIR_NAME_WINDOWS
+        return Path.home() / _BASE_DIR_NAME_WINDOWS
+    return Path.home() / _BASE_DIR_NAME_UNIX
 
 
-def get_data_dir() -> Path:
-    """Return the resolved data directory path.
-
-    The directory is not guaranteed to exist — callers that need it to be
-    present should call ``.mkdir(parents=True, exist_ok=True)`` first.
-    :func:`get_log_dir` does this automatically.
-    """
-    env_override: Path | None = Settings().data_dir
-    if env_override is not None:
-        logger.debug("Data dir from RBCOPY_DATA_DIR env var: %s", env_override)
-        return env_override
-
+def _resolve_base_dir() -> Path:
+    """Return the GL_Tools base directory using the three-step priority."""
     if _BOOTSTRAP_PATH.exists():
         try:
             data = json.loads(_BOOTSTRAP_PATH.read_text(encoding="utf-8"))
             configured = data.get("data_dir", "").strip()
             if configured:
-                logger.debug("Data dir from bootstrap file: %s", configured)
+                logger.debug("Base dir from bootstrap file: %s", configured)
                 return Path(configured)
         except (OSError, json.JSONDecodeError, ValueError):
             logger.debug(
-                "Bootstrap location file unreadable; falling back to platform default",
+                "Bootstrap location file unreadable; proceeding to next source",
                 exc_info=True,
             )
 
+    if _u_drive_exists():
+        logger.debug("Base dir from U:\\ drive: %s", _NETWORK_DRIVE_BASE)
+        return _NETWORK_DRIVE_BASE
+
     default = _platform_default()
-    logger.debug("Data dir from platform default: %s", default)
+    logger.debug("Base dir from platform default: %s", default)
     return default
 
 
+def get_data_dir(app_name: str) -> Path:
+    """Return the resolved data directory for *app_name*, creating it if needed.
+
+    The returned path is ``{base_dir}/{app_name}`` where ``base_dir`` is
+    resolved via :func:`_resolve_base_dir`.  The directory (including any
+    missing parents) is created before being returned.
+    """
+    app_dir = _resolve_base_dir() / app_name
+    app_dir.mkdir(parents=True, exist_ok=True)
+    logger.debug("Data dir for %r: %s", app_name, app_dir)
+    return app_dir
+
+
 def get_log_dir() -> Path:
-    """Return the log subdirectory, creating it if necessary.
+    """Return the log subdirectory for this application, creating it if needed.
 
     Log files live in ``{data_dir}/logs/`` so JSON config files and
     timestamped log files are clearly separated at the top level.
     """
-    log_dir = get_data_dir() / "logs"
+    log_dir = get_data_dir(app_name="rbcopy") / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
 
@@ -140,7 +159,7 @@ def validate_data_dir(path: Path) -> str | None:
     if not path.is_absolute():
         return (
             "The path must be absolute "
-            r"(for example: C:\Users\you\RBCopy or /home/you/.rbcopy)."
+            r"(for example: C:\Users\you\GL_Tools or /home/you/.gl_tools)."
         )
 
     try:
@@ -156,7 +175,7 @@ def validate_data_dir(path: Path) -> str | None:
 
     try:
         path.mkdir(parents=True, exist_ok=True)
-        probe = path / ".rbcopy_write_test"
+        probe = path / ".gl_tools_write_test"
         probe.write_text("ok", encoding="utf-8")
         probe.unlink()
     except OSError as exc:

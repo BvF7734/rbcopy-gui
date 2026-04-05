@@ -23,8 +23,8 @@ from rbcopy.storage import JsonStore
 
 logger = getLogger(__name__)
 
-# Default path for storing custom presets (~/.rbcopy/presets.json).
-_DEFAULT_PRESETS_PATH: Path = get_data_dir() / "presets.json"
+# Default path for storing custom presets (GL_Tools/rbcopy/presets.json).
+_DEFAULT_PRESETS_PATH: Path = get_data_dir(app_name="rbcopy") / "presets.json"
 
 
 class CustomPreset(BaseModel):

@@ -49,7 +49,7 @@ from rbcopy.robocopy_parser import parse_summary_from_log
 # inherits its FileHandler) even when launched directly.
 logger = getLogger("rbcopy.gui")
 
-_GEOMETRY_PATH: Path = get_data_dir() / "geometry.json"
+_GEOMETRY_PATH: Path = get_data_dir(app_name="rbcopy") / "geometry.json"
 
 # Maximum lines consumed from the output queue in a single poll cycle.
 # Capping this prevents the main thread from blocking for too long when

@@ -21,7 +21,7 @@ from rbcopy.storage import JsonStore
 
 logger = getLogger(__name__)
 
-_DEFAULT_HISTORY_PATH: Path = get_data_dir() / "path_history.json"
+_DEFAULT_HISTORY_PATH: Path = get_data_dir(app_name="rbcopy") / "path_history.json"
 MAX_PATHS: int = 20
 
 

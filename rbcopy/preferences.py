@@ -57,7 +57,7 @@ class PreferencesStore:
     """
 
     def __init__(self, path: Path | None = None) -> None:
-        self._path: Path = path if path is not None else get_data_dir() / "preferences.json"
+        self._path: Path = path if path is not None else get_data_dir(app_name="rbcopy") / "preferences.json"
         self._prefs: AppPreferences = AppPreferences()
         self._load()
 

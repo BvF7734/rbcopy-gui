@@ -21,8 +21,8 @@ from rbcopy.storage import JsonStore
 
 logger = getLogger(__name__)
 
-# Default path for storing bookmarks (~/.rbcopy/bookmarks.json).
-_DEFAULT_BOOKMARKS_PATH: Path = get_data_dir() / "bookmarks.json"
+# Default path for storing bookmarks (GL_Tools/rbcopy/bookmarks.json).
+_DEFAULT_BOOKMARKS_PATH: Path = get_data_dir(app_name="rbcopy") / "bookmarks.json"
 
 # Maximum allowed length for a bookmark name.  Long names render poorly as
 # menu items; this keeps the menu readable.
