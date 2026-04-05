@@ -437,3 +437,30 @@ def test_drag_leave_combobox_restores_combobox_style() -> None:
     entry.configure.reset_mock()
     callback(MagicMock())
     entry.configure.assert_called_with(style="TCombobox")
+
+
+# ---------------------------------------------------------------------------
+# setup_entry_drop – TclError fallback for style detection (lines 102-103)
+# ---------------------------------------------------------------------------
+
+
+def test_setup_entry_drop_uses_default_style_on_tclerror_from_cget_style() -> None:
+    """setup_entry_drop falls back to _DND_DEFAULT_STYLE when entry.cget('style') raises TclError.
+
+    The ``cget("style")`` call inside the try/except at lines 100-103 may raise
+    ``TclError`` on some Tk builds.  The fallback ensures DnD registration still
+    succeeds rather than propagating the error.
+    """
+    entry = MagicMock()
+    # Make cget("style") raise TclError so the except branch at lines 102-103 fires.
+    entry.cget.side_effect = tk.TclError("unknown option -style")
+    entry.winfo_class.return_value = "TEntry"
+    var = MagicMock(spec=tk.StringVar)
+    mock_tkinterdnd2 = MagicMock()
+
+    with patch.dict("sys.modules", {"tkinterdnd2": mock_tkinterdnd2}):
+        result = setup_entry_drop(entry, var)
+
+    # Despite the TclError, registration should succeed and return True.
+    assert result is True
+    entry.drop_target_register.assert_called_once()

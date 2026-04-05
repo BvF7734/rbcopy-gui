@@ -611,6 +611,12 @@ def test_custom_preset_rejects_non_string_param_keys() -> None:
         CustomPreset.model_validate({"name": "x", "params": {1: [True, "8"]}})
 
 
+def test_custom_preset_rejects_wrong_length_param_value() -> None:
+    """A param value that is not a 2-element pair must be rejected."""
+    with pytest.raises(ValidationError):
+        CustomPreset.model_validate({"name": "x", "params": {"/MT": [True]}})
+
+
 # ---------------------------------------------------------------------------
 # CustomPresetsStore – ValidationError recovery
 # ---------------------------------------------------------------------------

@@ -460,3 +460,83 @@ def test_job_history_window_export_log_path_not_in_map_is_noop() -> None:
         win._export_log()
 
     mock_dialog.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Job history – _open_externally non-Windows branches (lines 529-532)
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_win_for_open(log_path: Path) -> Any:
+    """Return a minimal _JobHistoryWindow stub whose selection points at *log_path*."""
+    mock_tree = MagicMock()
+    mock_tree.selection.return_value = ("item1",)
+
+    win: Any = _JobHistoryWindow.__new__(_JobHistoryWindow)
+    win._all_entries = []
+    win._resolved = {}
+    win._filter_var = _StringVarStub()
+    win._date_from_var = _StringVarStub()
+    win._date_to_var = _StringVarStub()
+    win._filter_count_var = _StringVarStub()
+    win._search_var = _StringVarStub()
+    win._search_count_var = _StringVarStub()
+    win._search_matches = []
+    win._search_current = -1
+    win._tree = mock_tree
+    win._log_file_map = {"item1": log_path}
+    return win
+
+
+def test_job_history_window_open_externally_calls_open_on_darwin(tmp_path: Path) -> None:
+    """_open_externally calls 'open' via subprocess.Popen on macOS (sys.platform == 'darwin').
+
+    The test replaces the module-level ``os`` object with a spec that excludes
+    ``startfile`` so that ``hasattr(os, 'startfile')`` evaluates to ``False``,
+    forcing execution of the elif-darwin branch (line 529-530).
+    """
+    import os as _real_os
+
+    log = tmp_path / "robocopy_job_20240101_120000.log"
+    log.touch()
+    win = _make_mock_win_for_open(log)
+
+    # Build a mock os namespace without 'startfile' so lines 529-530 execute.
+    spec_attrs = [x for x in dir(_real_os) if x != "startfile"]
+    mock_os = MagicMock(spec=spec_attrs)
+
+    with (
+        patch.object(job_history_module, "os", mock_os),
+        patch.object(job_history_module, "sys") as mock_sys,
+        patch.object(job_history_module.subprocess, "Popen") as mock_popen,
+    ):
+        mock_sys.platform = "darwin"
+        win._open_externally()
+
+    mock_popen.assert_called_once_with(["open", str(log)], shell=False)
+
+
+def test_job_history_window_open_externally_calls_xdg_open_on_linux(tmp_path: Path) -> None:
+    """_open_externally calls 'xdg-open' via subprocess.Popen on Linux (else branch, line 531-532).
+
+    The test replaces the module-level ``os`` object with a spec that excludes
+    ``startfile`` and sets ``sys.platform`` to "linux" to reach the else branch.
+    """
+    import os as _real_os
+
+    log = tmp_path / "robocopy_job_20240101_120000.log"
+    log.touch()
+    win = _make_mock_win_for_open(log)
+
+    spec_attrs = [x for x in dir(_real_os) if x != "startfile"]
+    mock_os = MagicMock(spec=spec_attrs)
+
+    with (
+        patch.object(job_history_module, "os", mock_os),
+        patch.object(job_history_module, "sys") as mock_sys,
+        patch.object(job_history_module.subprocess, "Popen") as mock_popen,
+    ):
+        mock_sys.platform = "linux"
+        win._open_externally()
+
+    mock_popen.assert_called_once_with(["xdg-open", str(log)], shell=False)

@@ -490,3 +490,33 @@ def test_dry_run_starts_background_thread() -> None:
         daemon=True,
     )
     mock_thread.start.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Destructive operation cancelled (lines 1605-1606)
+# ---------------------------------------------------------------------------
+
+
+def test_run_aborts_and_appends_cancelled_message_when_destructive_op_declined() -> None:
+    """_run must append '[Aborted]' and not start a thread when the user cancels the destructive-flag warning."""
+    from rbcopy.builder import DryRunResult
+
+    fake_self = _make_fake_self()
+    fake_self.src_var.get.return_value = "C:/source"
+    fake_self.dst_var.get.return_value = "D:/dest"
+    fake_self._get_selections.return_value = ({"/PURGE": True}, {})
+
+    ok_result = DryRunResult(ok=True)
+
+    with (
+        patch("rbcopy.gui.main_window.validate_command", return_value=ok_result),
+        patch("rbcopy.gui.main_window._confirm_destructive_operation", return_value=False),
+        patch("rbcopy.gui.main_window.threading.Thread") as mock_thread_cls,
+    ):
+        RobocopyGUI._run(fake_self)
+
+    # No thread should have been started.
+    mock_thread_cls.assert_not_called()
+    # An [Aborted] notice must have been appended to the output.
+    all_output = " ".join(call.args[0] for call in fake_self._append_output.call_args_list)
+    assert "[Aborted]" in all_output

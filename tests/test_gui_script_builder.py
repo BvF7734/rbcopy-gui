@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+import tkinter.ttk as ttk_mod
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -347,3 +348,93 @@ def test_export_script_opens_dialog() -> None:
         RobocopyGUI._export_script(fake_self, cmd)
 
     mock_dialog.assert_called_once_with(fake_self, cmd)
+
+
+# ---------------------------------------------------------------------------
+# _ScriptExportDialog – __init__, saved property, _build_ui, _browse_dir
+# ---------------------------------------------------------------------------
+
+
+def test_script_export_dialog_init_stores_cmd_and_defaults() -> None:
+    """__init__ must store _cmd and initialise _saved to False."""
+    from rbcopy.gui.script_builder import _ScriptExportDialog
+
+    parent = MagicMock()
+    cmd = ["robocopy", "C:/src", "C:/dst"]
+
+    with (
+        patch.object(tk.Toplevel, "__init__", return_value=None),
+        patch.object(tk.Toplevel, "title"),
+        patch.object(tk.Toplevel, "resizable"),
+        patch.object(tk.Toplevel, "transient"),
+        patch.object(tk.Toplevel, "grab_set"),
+        patch.object(tk.Toplevel, "wait_window"),
+        patch("rbcopy.gui.script_builder.tk.StringVar"),
+        patch.object(_ScriptExportDialog, "_build_ui"),
+    ):
+        dlg = _ScriptExportDialog(parent, cmd)
+
+    assert dlg._cmd is cmd
+    assert dlg._saved is False
+
+
+def test_script_export_dialog_saved_property() -> None:
+    """The saved property must reflect the current value of _saved."""
+    from rbcopy.gui.script_builder import _ScriptExportDialog
+
+    fake = _ScriptExportDialog.__new__(_ScriptExportDialog)
+    fake._saved = False
+    assert fake.saved is False
+
+    fake._saved = True
+    assert fake.saved is True
+
+
+def test_script_export_dialog_build_ui_creates_type_frame() -> None:
+    """_build_ui must create a Script Type LabelFrame with two radio buttons."""
+    from rbcopy.gui.script_builder import _ScriptExportDialog
+
+    fake = _ScriptExportDialog.__new__(_ScriptExportDialog)
+    fake._type_var = MagicMock()
+    fake._name_var = MagicMock()
+    fake._dir_var = MagicMock()
+
+    with (
+        patch.object(ttk_mod, "LabelFrame") as mock_lf,
+        patch.object(ttk_mod, "Frame"),
+        patch.object(ttk_mod, "Button"),
+        patch.object(ttk_mod, "Label"),
+        patch.object(ttk_mod, "Entry"),
+        patch.object(ttk_mod, "Radiobutton") as mock_rb,
+    ):
+        _ScriptExportDialog._build_ui(fake)
+
+    assert mock_lf.call_count == 1
+    assert mock_lf.call_args.kwargs["text"] == "Script Type"
+    assert mock_rb.call_count == 2
+
+
+def test_browse_dir_sets_dir_var_when_path_selected(tmp_path: Path) -> None:
+    """_browse_dir must update _dir_var when the user selects a directory."""
+    from rbcopy.gui.script_builder import _ScriptExportDialog
+
+    fake = _ScriptExportDialog.__new__(_ScriptExportDialog)
+    fake._dir_var = MagicMock()
+
+    with patch("rbcopy.gui.script_builder.filedialog.askdirectory", return_value=str(tmp_path)):
+        _ScriptExportDialog._browse_dir(fake)
+
+    fake._dir_var.set.assert_called_once_with(str(tmp_path))
+
+
+def test_browse_dir_does_not_update_var_when_cancelled() -> None:
+    """_browse_dir must not update _dir_var when the user cancels the dialog."""
+    from rbcopy.gui.script_builder import _ScriptExportDialog
+
+    fake = _ScriptExportDialog.__new__(_ScriptExportDialog)
+    fake._dir_var = MagicMock()
+
+    with patch("rbcopy.gui.script_builder.filedialog.askdirectory", return_value=""):
+        _ScriptExportDialog._browse_dir(fake)
+
+    fake._dir_var.set.assert_not_called()

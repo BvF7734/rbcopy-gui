@@ -319,3 +319,9 @@ def test_mir_supersession_does_not_affect_zb_state(gui: RobocopyGUI) -> None:
     # /ZB is not superseded by /MIR – it must remain normally interactive
     # (its own superseded children /Z and /B should still be disabled by /ZB).
     assert not gui._flag_cbs["/ZB"].instate(["disabled"]), "/ZB must not be disabled by /MIR"  # type: ignore[no-untyped-call]
+
+
+def test_mousewheel_scroll_handler_fires_without_error(gui: RobocopyGUI) -> None:
+    """A synthetic MouseWheel event must invoke the main canvas scroll handler without error."""
+    gui.event_generate("<MouseWheel>", delta=120)
+    gui.update()

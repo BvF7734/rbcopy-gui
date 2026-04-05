@@ -14,7 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from rbcopy.gui import RobocopyGUI
-from tests.helpers import make_fake_self as _make_fake_self, make_mock_async_proc
+from rbcopy.gui.main_window import _SavePresetDialog, _ToolTip, _PresetDropdownTooltip
+from tests.helpers import make_fake_self as _make_fake_self, make_mock_async_proc, StringVarStub
 
 # ---------------------------------------------------------------------------
 # Menu structure tests
@@ -596,3 +597,431 @@ def test_open_preferences_opens_dialog() -> None:
 
 
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# _ToolTip tests (lines 199-230)
+# ---------------------------------------------------------------------------
+
+
+def _make_tooltip_stub(text: str = "tip text") -> _ToolTip:
+    """Return a _ToolTip whose widget is a MagicMock (no live Tk needed)."""
+    tip: _ToolTip = object.__new__(_ToolTip)
+    tip._widget = MagicMock()
+    tip._text = text
+    tip._tip_window = None
+    tip._after_id = None
+    return tip
+
+
+def test_tooltip_schedule_sets_after_id() -> None:
+    """_ToolTip._schedule cancels any pending callback then schedules a new one."""
+    tip = _make_tooltip_stub()
+    tip._widget.after.return_value = "after_id_42"
+
+    tip._schedule(MagicMock())
+
+    tip._widget.after.assert_called_once_with(tip._DELAY_MS, tip._show)
+    assert tip._after_id == "after_id_42"
+
+
+def test_tooltip_cancel_with_after_id_cancels_and_clears() -> None:
+    """_ToolTip._cancel calls after_cancel when _after_id is set and then clears it."""
+    tip = _make_tooltip_stub()
+    tip._after_id = "pending_id"
+
+    tip._cancel(None)
+
+    tip._widget.after_cancel.assert_called_once_with("pending_id")
+    assert tip._after_id is None
+
+
+def test_tooltip_cancel_without_after_id_does_not_call_after_cancel() -> None:
+    """_ToolTip._cancel must not call after_cancel when _after_id is None."""
+    tip = _make_tooltip_stub()
+    tip._after_id = None
+
+    tip._cancel(None)
+
+    tip._widget.after_cancel.assert_not_called()
+
+
+def test_tooltip_show_creates_toplevel_window() -> None:
+    """_ToolTip._show creates a Toplevel window and assigns it to _tip_window."""
+    tip = _make_tooltip_stub()
+    tip._widget.winfo_rootx.return_value = 100
+    tip._widget.winfo_rooty.return_value = 200
+    tip._widget.winfo_height.return_value = 30
+
+    mock_tw = MagicMock()
+    mock_label = MagicMock()
+    with (
+        patch("rbcopy.gui.main_window.tk.Toplevel", return_value=mock_tw),
+        patch("rbcopy.gui.main_window.tk.Label", return_value=mock_label),
+    ):
+        tip._show()
+
+    assert tip._tip_window is mock_tw
+    mock_tw.wm_overrideredirect.assert_called_once_with(True)
+    mock_label.pack.assert_called_once()
+
+
+def test_tooltip_show_skips_when_already_showing() -> None:
+    """_ToolTip._show must be a no-op when _tip_window is already set."""
+    tip = _make_tooltip_stub()
+    tip._tip_window = MagicMock()  # already showing
+
+    with patch("rbcopy.gui.main_window.tk.Toplevel") as mock_toplevel:
+        tip._show()
+
+    mock_toplevel.assert_not_called()
+
+
+def test_tooltip_hide_destroys_window_and_clears() -> None:
+    """_ToolTip._hide destroys the tip window and sets _tip_window to None."""
+    tip = _make_tooltip_stub()
+    mock_tw = MagicMock()
+    tip._tip_window = mock_tw
+
+    tip._hide()
+
+    mock_tw.destroy.assert_called_once()
+    assert tip._tip_window is None
+
+
+def test_tooltip_hide_does_nothing_when_no_window() -> None:
+    """_ToolTip._hide must be a no-op when _tip_window is already None."""
+    tip = _make_tooltip_stub()
+    tip._tip_window = None  # nothing to destroy
+    # Should not raise
+    tip._hide()
+
+
+# ---------------------------------------------------------------------------
+# launch() – High-DPI awareness failure
+# ---------------------------------------------------------------------------
+
+
+def test_launch_continues_when_dpi_awareness_raises_oserror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """launch() must not raise and must still start the GUI when SetProcessDpiAwareness raises OSError."""
+    import ctypes
+
+    import rbcopy.gui as gui_module
+
+    mock_windll = MagicMock()
+    mock_windll.shcore.SetProcessDpiAwareness.side_effect = OSError("not supported on this platform")
+    # raising=False allows the patch to succeed even on platforms that lack windll.
+    monkeypatch.setattr(ctypes, "windll", mock_windll, raising=False)
+
+    mock_instance = MagicMock()
+    monkeypatch.setattr(gui_module, "RobocopyGUI", MagicMock(return_value=mock_instance))
+    monkeypatch.setattr(
+        gui_module,
+        "setup_logging",
+        MagicMock(return_value=logging.getLogger("rbcopy._test_dpi_oserror")),
+    )
+    monkeypatch.setattr(gui_module, "rotate_logs", MagicMock())
+
+    # Must not raise despite the DPI awareness failure.
+    gui_module.launch()
+
+    mock_instance.mainloop.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _PresetDropdownTooltip tests (lines 260-309)
+# ---------------------------------------------------------------------------
+
+
+def _make_preset_tooltip() -> _PresetDropdownTooltip:
+    """Return a _PresetDropdownTooltip with mocked combo (no live Tk needed)."""
+    tip: _PresetDropdownTooltip = object.__new__(_PresetDropdownTooltip)
+    tip._combo = MagicMock()
+    tip._get_descriptions = MagicMock(return_value={"Alpha": "desc for alpha", "Beta": ""})
+    tip._tip_window = None
+    return tip
+
+
+def test_preset_tooltip_on_opened_binds_motion_on_listbox() -> None:
+    """_on_opened successfully finds the listbox and binds <Motion>."""
+    tip = _make_preset_tooltip()
+    mock_lb = MagicMock()
+    tip._combo.tk.eval.return_value = ".popdown"
+    tip._combo.nametowidget.return_value = mock_lb
+
+    tip._on_opened(MagicMock())
+
+    mock_lb.bind.assert_any_call("<Motion>", tip._on_motion)
+
+
+def test_preset_tooltip_on_opened_silences_exception() -> None:
+    """_on_opened must not propagate exceptions from the Tk internals."""
+    tip = _make_preset_tooltip()
+    tip._combo.tk.eval.side_effect = Exception("no popdown")
+
+    # Should not raise.
+    tip._on_opened(MagicMock())
+
+
+def test_preset_tooltip_on_motion_shows_description_for_valid_index() -> None:
+    """_on_motion calls _show when the hovered index has a non-empty description."""
+    tip = _make_preset_tooltip()
+    tip._combo.__getitem__ = MagicMock(return_value=("Alpha", "Beta"))
+
+    event = MagicMock()
+    event.widget.nearest.return_value = 0
+    event.x_root = 300
+    event.y_root = 400
+
+    with patch.object(tip, "_show") as mock_show, patch.object(tip, "_hide") as mock_hide:
+        tip._on_motion(event)
+
+    mock_show.assert_called_once_with(300, 400, "desc for alpha")
+    mock_hide.assert_not_called()
+
+
+def test_preset_tooltip_on_motion_hides_when_no_description() -> None:
+    """_on_motion calls _hide when the hovered item has no description."""
+    tip = _make_preset_tooltip()
+    tip._combo.__getitem__ = MagicMock(return_value=("Beta",))
+
+    event = MagicMock()
+    event.widget.nearest.return_value = 0
+
+    with patch.object(tip, "_show") as mock_show, patch.object(tip, "_hide") as mock_hide:
+        tip._on_motion(event)
+
+    mock_hide.assert_called_once()
+    mock_show.assert_not_called()
+
+
+def test_preset_tooltip_on_motion_hides_when_index_out_of_range() -> None:
+    """_on_motion calls _hide when the index is out of range."""
+    tip = _make_preset_tooltip()
+    tip._combo.__getitem__ = MagicMock(return_value=())
+
+    event = MagicMock()
+    event.widget.nearest.return_value = 5  # beyond empty list
+
+    with patch.object(tip, "_hide") as mock_hide:
+        tip._on_motion(event)
+
+    mock_hide.assert_called_once()
+
+
+def test_preset_tooltip_show_creates_toplevel() -> None:
+    """_PresetDropdownTooltip._show creates a Toplevel window with the given text."""
+    tip = _make_preset_tooltip()
+    mock_tw = MagicMock()
+    mock_label = MagicMock()
+    with (
+        patch("rbcopy.gui.main_window.tk.Toplevel", return_value=mock_tw),
+        patch("rbcopy.gui.main_window.tk.Label", return_value=mock_label),
+    ):
+        tip._show(100, 200, "hello")
+
+    assert tip._tip_window is mock_tw
+    mock_label.pack.assert_called_once()
+
+
+def test_preset_tooltip_show_skips_when_same_text_already_showing() -> None:
+    """_show must be a no-op when the tooltip already shows the same text."""
+    tip = _make_preset_tooltip()
+    mock_child = MagicMock()
+    mock_child.cget.return_value = "same text"
+    mock_tw = MagicMock()
+    mock_tw.winfo_children.return_value = [mock_child]
+    tip._tip_window = mock_tw
+
+    with patch("rbcopy.gui.main_window.tk.Toplevel") as mock_toplevel:
+        tip._show(0, 0, "same text")
+
+    mock_toplevel.assert_not_called()
+
+
+def test_preset_tooltip_hide_destroys_window() -> None:
+    """_PresetDropdownTooltip._hide destroys the tip window and clears the reference."""
+    tip = _make_preset_tooltip()
+    mock_tw = MagicMock()
+    tip._tip_window = mock_tw
+
+    tip._hide()
+
+    mock_tw.destroy.assert_called_once()
+    assert tip._tip_window is None
+
+
+# ---------------------------------------------------------------------------
+# _SavePresetDialog tests (lines 324-379)
+# ---------------------------------------------------------------------------
+
+
+def _make_save_preset_dialog_stub(name: str = "", desc: str = "") -> _SavePresetDialog:
+    """Return a _SavePresetDialog bypassing __init__ (no live Tk needed)."""
+    dlg: _SavePresetDialog = object.__new__(_SavePresetDialog)
+    dlg._name_var = StringVarStub(name)
+    dlg._desc_var = StringVarStub(desc)
+    dlg._confirmed = False
+    # Minimal Toplevel stubs so destroy() / showwarning() calls don't raise.
+    dlg.destroy = MagicMock()  # type: ignore[assignment]
+    return dlg
+
+
+def test_save_preset_dialog_name_property_returns_none_when_not_confirmed() -> None:
+    """_SavePresetDialog.name returns None when the dialog was not confirmed."""
+    dlg = _make_save_preset_dialog_stub(name="MyPreset")
+    assert dlg.name is None
+
+
+def test_save_preset_dialog_name_property_returns_stripped_name_when_confirmed() -> None:
+    """_SavePresetDialog.name returns the stripped name after confirmation."""
+    dlg = _make_save_preset_dialog_stub(name="  MyPreset  ")
+    dlg._confirmed = True
+    assert dlg.name == "MyPreset"
+
+
+def test_save_preset_dialog_description_property_returns_stripped_desc() -> None:
+    """_SavePresetDialog.description always returns the stripped description."""
+    dlg = _make_save_preset_dialog_stub(desc="  My description  ")
+    assert dlg.description == "My description"
+
+
+def test_save_preset_dialog_ok_confirms_and_destroys_when_name_set() -> None:
+    """_ok sets _confirmed = True and calls destroy() when a name is entered."""
+    dlg = _make_save_preset_dialog_stub(name="Good Name")
+
+    with patch("rbcopy.gui.main_window.messagebox.showwarning") as mock_warn:
+        dlg._ok()
+
+    assert dlg._confirmed is True
+    dlg.destroy.assert_called_once()
+    mock_warn.assert_not_called()
+
+
+def test_save_preset_dialog_ok_warns_and_does_not_confirm_when_name_empty() -> None:
+    """_ok shows a warning and does NOT confirm when the name field is blank."""
+    dlg = _make_save_preset_dialog_stub(name="   ")
+
+    with patch("rbcopy.gui.main_window.messagebox.showwarning") as mock_warn:
+        dlg._ok()
+
+    assert dlg._confirmed is False
+    dlg.destroy.assert_not_called()
+    mock_warn.assert_called_once()
+
+
+def test_save_preset_dialog_cancel_destroys_without_confirming() -> None:
+    """_cancel destroys the dialog without marking it as confirmed."""
+    dlg = _make_save_preset_dialog_stub()
+
+    dlg._cancel()
+
+    assert dlg._confirmed is False
+    dlg.destroy.assert_called_once()
+
+
+def test_save_preset_dialog_init_creates_window_with_real_tk() -> None:
+    """_SavePresetDialog.__init__ runs without error (covers lines 324-369).
+
+    Requires a live Tk display; skipped automatically on headless systems.
+    ``wait_window`` and ``grab_set`` are patched to avoid blocking the test loop.
+    """
+    try:
+        root = tk.Tk()
+        root.withdraw()
+    except tk.TclError as exc:
+        pytest.skip(f"Tkinter display not available: {exc}")
+
+    try:
+        with (
+            patch.object(_SavePresetDialog, "wait_window"),
+            patch.object(_SavePresetDialog, "grab_set"),
+        ):
+            dlg = _SavePresetDialog(root)
+        assert hasattr(dlg, "_name_var")
+        assert hasattr(dlg, "_desc_var")
+        assert hasattr(dlg, "_confirmed")
+    finally:
+        try:
+            dlg.destroy()  # type: ignore[possibly-undefined]
+        except Exception:
+            pass
+        root.destroy()
+
+
+# ---------------------------------------------------------------------------
+# _build_flags / _build_params early-return tests (lines 770, 815)
+# ---------------------------------------------------------------------------
+
+
+def test_build_flags_returns_early_when_all_flags_already_registered() -> None:
+    """_build_flags returns without creating widgets when flags_to_render is empty."""
+    from rbcopy.builder import FLAG_OPTIONS
+
+    fake_self = _make_fake_self()
+    # Pre-register every flag so flags_to_render will be empty.
+    fake_self._flag_vars = {flag: MagicMock() for flag, _ in FLAG_OPTIONS}
+    fake_self._flag_cbs = {flag: MagicMock() for flag, _ in FLAG_OPTIONS}
+
+    mock_parent = MagicMock()
+    # include=None means "render remaining flags"; since all are registered, list is empty.
+    RobocopyGUI._build_flags(fake_self, mock_parent, {})
+
+    # No LabelFrame (or child widget) should have been created.
+    mock_parent.assert_not_called()
+
+
+def test_build_params_returns_early_when_all_params_already_registered() -> None:
+    """_build_params returns without creating widgets when params_to_render is empty."""
+    from rbcopy.builder import PARAM_OPTIONS
+
+    fake_self = _make_fake_self()
+    # Pre-register every param so params_to_render will be empty.
+    fake_self._param_vars = {flag: (MagicMock(), MagicMock(), MagicMock()) for flag, _, _ in PARAM_OPTIONS}
+
+    mock_parent = MagicMock()
+    RobocopyGUI._build_params(fake_self, mock_parent, {})
+
+    mock_parent.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _stop OSError test (lines 1805-1806)
+# ---------------------------------------------------------------------------
+
+
+def test_stop_swallows_oserror_from_terminate() -> None:
+    """_stop must not propagate an OSError raised by proc.terminate()."""
+    fake_self = _make_fake_self()
+    mock_proc = MagicMock()
+    mock_proc.returncode = None  # process is live
+    mock_proc.terminate.side_effect = OSError("already gone")
+    fake_self._current_proc = mock_proc
+
+    # Must not raise.
+    RobocopyGUI._stop(fake_self)
+
+    mock_proc.terminate.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _exit OSError test (lines 1785-1786)
+# ---------------------------------------------------------------------------
+
+
+def test_exit_swallows_oserror_from_kill() -> None:
+    """_exit must not propagate an OSError raised by proc.kill() after timeout."""
+    fake_self = _make_fake_self()
+    mock_proc = MagicMock()
+    mock_proc.returncode = None
+    mock_proc.pid = 9999
+    mock_proc.kill.side_effect = OSError("process already gone")
+    fake_self._current_proc = mock_proc
+
+    never_done = threading.Event()
+    fake_self._proc_done_event = never_done
+
+    with patch.object(never_done, "wait", return_value=False):
+        RobocopyGUI._exit(fake_self)
+
+    mock_proc.kill.assert_called_once()
+    fake_self.destroy.assert_called_once()

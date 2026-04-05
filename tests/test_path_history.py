@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from rbcopy.path_history import MAX_PATHS, PathHistoryStore, _deduplicate_prepend
+from rbcopy.path_history import MAX_PATHS, PathHistoryStore, _deduplicate_prepend, _normalize_path_separators
 
 
 # ---------------------------------------------------------------------------
@@ -464,3 +464,15 @@ def test_flush_oserror_keeps_store_dirty_for_retry(tmp_path: Path) -> None:
     store.flush()
     data = json.loads(history_path.read_text(encoding="utf-8"))
     assert "/retry/path" in data["source"]
+
+
+# ---------------------------------------------------------------------------
+# _normalize_path_separators – non-Windows branch
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_path_separators_returns_path_unchanged_on_non_windows() -> None:
+    """On non-Windows platforms _normalize_path_separators must return the path as-is."""
+    with patch("sys.platform", "linux"):
+        result = _normalize_path_separators("/some/path/with/slashes")
+    assert result == "/some/path/with/slashes"

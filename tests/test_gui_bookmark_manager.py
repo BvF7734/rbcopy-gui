@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import tkinter as tk
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Bookmark manager – _BookmarkManagerWindow unit tests
 # ---------------------------------------------------------------------------
@@ -246,6 +250,375 @@ def test_bookmark_manager_set_as_source_noop_when_no_selection(tmp_path: Path) -
     win._set_as_source()
 
     win._on_apply.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _EditBookmarkDialog – lightweight tests via __new__ (no display required)
+# ---------------------------------------------------------------------------
+
+
+def _make_edit_dialog() -> Any:
+    """Return a _EditBookmarkDialog instance with mocked Tkinter state."""
+    from rbcopy.gui.bookmark_manager import _EditBookmarkDialog
+
+    dlg = _EditBookmarkDialog.__new__(_EditBookmarkDialog)
+    dlg._name_var = MagicMock()
+    dlg._path_var = MagicMock()
+    dlg._confirmed = False
+    dlg.destroy = MagicMock()
+    return dlg
+
+
+def test_edit_dialog_name_returns_stripped_value_when_confirmed() -> None:
+    """name property returns the stripped text when the dialog was confirmed."""
+    dlg = _make_edit_dialog()
+    dlg._confirmed = True
+    dlg._name_var.get.return_value = "  My Bookmark  "
+
+    assert dlg.name == "My Bookmark"
+
+
+def test_edit_dialog_path_returns_stripped_value() -> None:
+    """path property always returns the stripped path text."""
+    dlg = _make_edit_dialog()
+    dlg._path_var.get.return_value = r"  C:\Work\Projects  "
+
+    assert dlg.path == r"C:\Work\Projects"
+
+
+def test_edit_dialog_ok_shows_warning_when_name_empty() -> None:
+    """_ok must show a warning and leave _confirmed False when the name is blank."""
+    dlg = _make_edit_dialog()
+    dlg._name_var.get.return_value = "   "
+
+    with patch("rbcopy.gui.bookmark_manager.messagebox.showwarning") as mock_warn:
+        dlg._ok()
+
+    mock_warn.assert_called_once()
+    assert dlg._confirmed is False
+    dlg.destroy.assert_not_called()
+
+
+def test_edit_dialog_ok_confirms_and_destroys_when_name_given() -> None:
+    """_ok must set _confirmed=True and call destroy when the name is non-empty."""
+    dlg = _make_edit_dialog()
+    dlg._name_var.get.return_value = "ValidName"
+
+    dlg._ok()
+
+    assert dlg._confirmed is True
+    dlg.destroy.assert_called_once()
+
+
+def test_edit_dialog_cancel_destroys_without_confirming() -> None:
+    """_cancel must call destroy without setting _confirmed."""
+    dlg = _make_edit_dialog()
+
+    dlg._cancel()
+
+    assert dlg._confirmed is False
+    dlg.destroy.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _EditBookmarkDialog and _BookmarkManagerWindow – real Tkinter
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def tk_root() -> Iterator[tk.Tk]:
+    """Yield a hidden Tk root; skip the test if no display is available."""
+    try:
+        root = tk.Tk()
+        root.withdraw()
+    except tk.TclError as exc:
+        pytest.skip(f"Tkinter display not available: {exc}")
+    yield root
+    try:
+        root.destroy()
+    except tk.TclError:
+        pass
+
+
+def test_edit_dialog_initialises_correctly(tk_root: tk.Tk) -> None:
+    """_EditBookmarkDialog.__init__ sets initial state without blocking."""
+    from rbcopy.gui.bookmark_manager import _EditBookmarkDialog
+
+    with patch.object(_EditBookmarkDialog, "wait_window"):
+        dlg = _EditBookmarkDialog(parent=tk_root, initial_name="Alpha", initial_path=r"C:\alpha")
+
+    assert dlg._confirmed is False
+    assert dlg._name_var.get() == "Alpha"
+    assert dlg._path_var.get() == r"C:\alpha"
+    dlg.destroy()
+
+
+def test_bookmark_manager_window_can_be_opened(tk_root: tk.Tk, tmp_path: Path) -> None:
+    """_BookmarkManagerWindow can be constructed and immediately destroyed."""
+    from rbcopy.bookmarks import BookmarksStore
+    from rbcopy.gui.bookmark_manager import _BookmarkManagerWindow
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _BookmarkManagerWindow(parent=tk_root, store=store)
+    win.destroy()
+
+
+# ---------------------------------------------------------------------------
+# _refresh – additional paths (prior selection and existing children)
+# ---------------------------------------------------------------------------
+
+
+def test_bookmark_manager_refresh_preserves_prior_selection(tmp_path: Path) -> None:
+    """_refresh re-selects the previously-selected row after repopulating the tree."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("Alpha", r"C:\alpha")
+    store.add_bookmark("Beta", r"C:\beta")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ("iid_old",)
+    # set() returns "Alpha" so that is recorded as the previously-selected name.
+    win._tree.set = MagicMock(return_value="Alpha")
+    # One existing child so delete(*children) is triggered.
+    win._tree.get_children.return_value = ("iid_old",)
+    # insert() returns distinct iids so the matching Alpha row can be identified.
+    win._tree.insert = MagicMock(side_effect=["iid_new_alpha", "iid_new_beta"])
+
+    win._refresh()
+
+    # Existing children were cleared first (line 204).
+    win._tree.delete.assert_called_with("iid_old")
+    # The matching bookmark was re-selected (lines 218-219).
+    win._tree.selection_set.assert_called_once_with("iid_new_alpha")
+    win._tree.see.assert_called_once_with("iid_new_alpha")
+
+
+# ---------------------------------------------------------------------------
+# _selected_index – additional paths
+# ---------------------------------------------------------------------------
+
+
+def test_bookmark_manager_selected_index_returns_none_when_nothing_selected(tmp_path: Path) -> None:
+    """_selected_index returns None when the treeview has no selected row."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ()
+
+    assert win._selected_index() is None
+
+
+def test_bookmark_manager_selected_index_returns_none_when_iid_not_in_children(tmp_path: Path) -> None:
+    """_selected_index returns None when the selected iid is absent from get_children()."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ("iid_ghost",)
+    win._tree.get_children.return_value = ("iid_other",)  # ghost not present → ValueError
+
+    assert win._selected_index() is None
+
+
+# ---------------------------------------------------------------------------
+# _add – save failure path
+# ---------------------------------------------------------------------------
+
+
+def test_bookmark_manager_add_shows_error_when_save_fails(tmp_path: Path) -> None:
+    """_add shows an error dialog and does not notify when the store refuses to save."""
+    from rbcopy.bookmarks import BookmarksStore
+    from rbcopy.gui.bookmark_manager import _EditBookmarkDialog
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+    win._refresh = MagicMock()
+
+    mock_dlg = MagicMock(spec=_EditBookmarkDialog)
+    mock_dlg.name = "New"
+    mock_dlg.path = r"C:\new"
+
+    with patch("rbcopy.gui.bookmark_manager._EditBookmarkDialog", return_value=mock_dlg):
+        with patch.object(store, "add_bookmark", return_value=False):
+            with patch("rbcopy.gui.bookmark_manager.messagebox.showerror") as mock_err:
+                win._add()
+
+    mock_err.assert_called_once()
+    win._on_change.assert_not_called()
+    win._refresh.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _edit – additional paths
+# ---------------------------------------------------------------------------
+
+
+def test_bookmark_manager_edit_noop_when_no_bookmark_selected(tmp_path: Path) -> None:
+    """_edit does nothing when no row is selected in the treeview."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ()
+    win._refresh = MagicMock()
+
+    win._edit()
+
+    win._on_change.assert_not_called()
+    win._refresh.assert_not_called()
+
+
+def test_bookmark_manager_edit_shows_error_on_invalid_bookmark(tmp_path: Path) -> None:
+    """_edit shows an error and aborts when Bookmark construction raises ValueError.
+
+    Having 'Other' appear before 'Target' in the store ensures the
+    ``else: updated.append(b)`` branch (for non-matching bookmarks) is also
+    exercised before the exception is raised.
+    """
+    from rbcopy.bookmarks import BookmarksStore
+    from rbcopy.gui.bookmark_manager import _EditBookmarkDialog
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("Other", r"C:\other")  # processed via the else branch first
+    store.add_bookmark("Target", r"C:\target")  # triggers the ValueError when updated
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ("iid1",)
+    win._tree.set = MagicMock(return_value="Target")
+    win._refresh = MagicMock()
+
+    mock_dlg = MagicMock(spec=_EditBookmarkDialog)
+    mock_dlg.name = "Updated"
+    mock_dlg.path = r"C:\updated"
+
+    with patch("rbcopy.gui.bookmark_manager._EditBookmarkDialog", return_value=mock_dlg):
+        with patch("rbcopy.gui.bookmark_manager.Bookmark", side_effect=ValueError("invalid name")):
+            with patch("rbcopy.gui.bookmark_manager.messagebox.showerror") as mock_err:
+                win._edit()
+
+    mock_err.assert_called_once()
+    win._on_change.assert_not_called()
+    win._refresh.assert_not_called()
+
+
+def test_bookmark_manager_edit_shows_error_when_save_fails(tmp_path: Path) -> None:
+    """_edit shows an error and does not notify when replace_all returns False."""
+    from rbcopy.bookmarks import BookmarksStore
+    from rbcopy.gui.bookmark_manager import _EditBookmarkDialog
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("First", r"C:\first")
+    store.add_bookmark("Second", r"C:\second")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ("iid1",)
+    win._tree.set = MagicMock(return_value="First")
+    win._refresh = MagicMock()
+    win._select_by_name = MagicMock()
+
+    mock_dlg = MagicMock(spec=_EditBookmarkDialog)
+    mock_dlg.name = "Updated"
+    mock_dlg.path = r"C:\updated"
+
+    with patch("rbcopy.gui.bookmark_manager._EditBookmarkDialog", return_value=mock_dlg):
+        with patch.object(store, "replace_all", return_value=False):
+            with patch("rbcopy.gui.bookmark_manager.messagebox.showerror") as mock_err:
+                win._edit()
+
+    mock_err.assert_called_once()
+    win._on_change.assert_not_called()
+    win._refresh.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _move_up / _move_down – save failure paths
+# ---------------------------------------------------------------------------
+
+
+def test_bookmark_manager_move_up_shows_error_when_save_fails(tmp_path: Path) -> None:
+    """_move_up shows an error and does not notify when replace_all returns False."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("First", r"C:\first")
+    store.add_bookmark("Second", r"C:\second")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.get_children.return_value = ("iid0", "iid1")
+    win._tree.selection.return_value = ("iid1",)
+    win._refresh = MagicMock()
+
+    with patch.object(store, "replace_all", return_value=False):
+        with patch("rbcopy.gui.bookmark_manager.messagebox.showerror") as mock_err:
+            win._move_up()
+
+    mock_err.assert_called_once()
+    win._on_change.assert_not_called()
+    win._refresh.assert_not_called()
+
+
+def test_bookmark_manager_move_down_shows_error_when_save_fails(tmp_path: Path) -> None:
+    """_move_down shows an error and does not notify when replace_all returns False."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("First", r"C:\first")
+    store.add_bookmark("Second", r"C:\second")
+
+    win = _make_bookmark_manager_win(store)
+    win._tree.get_children.return_value = ("iid0", "iid1")
+    win._tree.selection.return_value = ("iid0",)
+    win._refresh = MagicMock()
+
+    with patch.object(store, "replace_all", return_value=False):
+        with patch("rbcopy.gui.bookmark_manager.messagebox.showerror") as mock_err:
+            win._move_down()
+
+    mock_err.assert_called_once()
+    win._on_change.assert_not_called()
+    win._refresh.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _set_as_destination – no-selection path
+# ---------------------------------------------------------------------------
+
+
+def test_bookmark_manager_set_as_destination_noop_when_no_selection(tmp_path: Path) -> None:
+    """_set_as_destination does nothing when no row is selected."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+    win._tree.selection.return_value = ()
+
+    win._set_as_destination()
+
+    win._on_apply.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _select_by_name – match path
+# ---------------------------------------------------------------------------
+
+
+def test_bookmark_manager_select_by_name_selects_matching_row(tmp_path: Path) -> None:
+    """_select_by_name selects the treeview row whose Name column matches the given name."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+
+    name_map = {"iid0": "Alpha", "iid1": "Beta", "iid2": "Gamma"}
+    win._tree.get_children.return_value = ("iid0", "iid1", "iid2")
+    win._tree.set = MagicMock(side_effect=lambda iid, col: name_map.get(iid, ""))
+
+    win._select_by_name("Beta")
+
+    win._tree.selection_set.assert_called_once_with("iid1")
+    win._tree.see.assert_called_once_with("iid1")
 
 
 def test_bookmark_manager_add_calls_store_and_notifies(tmp_path: Path) -> None:

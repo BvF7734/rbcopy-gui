@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import tkinter as tk
+import tkinter.ttk as ttk_mod
 import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -635,3 +637,139 @@ def test_on_reset_bookmarks_noop_when_callback_is_none() -> None:
 
     # Must not raise.
     fake._on_reset_bookmarks()
+
+
+# ---------------------------------------------------------------------------
+# _PreferencesDialog – __init__, saved property, _build_ui, _add_field
+# ---------------------------------------------------------------------------
+
+
+def test_preferences_dialog_init_stores_references(tmp_path: Path) -> None:
+    """__init__ must assign the store, callbacks, and initialise _saved to False."""
+    from rbcopy.gui.preferences_dialog import _PreferencesDialog
+
+    store = PreferencesStore(path=tmp_path / "prefs.json")
+    on_saved = MagicMock()
+    on_clear_history = MagicMock()
+    on_clear_bookmarks = MagicMock()
+    parent = MagicMock()
+
+    with (
+        patch.object(tk.Toplevel, "__init__", return_value=None),
+        patch.object(tk.Toplevel, "title"),
+        patch.object(tk.Toplevel, "resizable"),
+        patch.object(tk.Toplevel, "transient"),
+        patch.object(tk.Toplevel, "grab_set"),
+        patch.object(tk.Toplevel, "wait_window"),
+        patch("rbcopy.gui.preferences_dialog.tk.StringVar"),
+        patch.object(_PreferencesDialog, "_build_ui"),
+    ):
+        dlg = _PreferencesDialog(parent, store, on_saved, on_clear_history, on_clear_bookmarks)
+
+    assert dlg._store is store
+    assert dlg._on_saved is on_saved
+    assert dlg._on_clear_history is on_clear_history
+    assert dlg._on_clear_bookmarks is on_clear_bookmarks
+    assert dlg._saved is False
+
+
+def test_preferences_dialog_saved_property() -> None:
+    """The saved property must reflect the current value of _saved."""
+    from rbcopy.gui.preferences_dialog import _PreferencesDialog
+
+    fake = _PreferencesDialog.__new__(_PreferencesDialog)
+    fake._saved = False
+    assert fake.saved is False
+
+    fake._saved = True
+    assert fake.saved is True
+
+
+def test_preferences_dialog_build_ui_creates_all_sections() -> None:
+    """_build_ui must create the Robocopy Defaults, Logging, and Data LabelFrames."""
+    from rbcopy.gui.preferences_dialog import _PreferencesDialog
+
+    fake = _PreferencesDialog.__new__(_PreferencesDialog)
+    fake._on_clear_history = None
+    fake._on_clear_bookmarks = None
+    fake._thread_var = MagicMock()
+    fake._retry_var = MagicMock()
+    fake._wait_var = MagicMock()
+    fake._log_var = MagicMock()
+
+    with (
+        patch.object(ttk_mod, "LabelFrame") as mock_lf,
+        patch.object(ttk_mod, "Frame"),
+        patch.object(ttk_mod, "Button"),
+        patch.object(ttk_mod, "Label"),
+        patch.object(ttk_mod, "Entry"),
+    ):
+        _PreferencesDialog._build_ui(fake)
+
+    assert mock_lf.call_count == 3
+    section_names = [c.kwargs["text"] for c in mock_lf.call_args_list]
+    assert "Robocopy Defaults" in section_names
+    assert "Logging" in section_names
+    assert "Data" in section_names
+
+
+def test_preferences_dialog_build_ui_data_buttons_disabled_when_no_callbacks() -> None:
+    """_build_ui must mark both Data reset buttons as disabled when callbacks are None."""
+    from rbcopy.gui.preferences_dialog import _PreferencesDialog
+
+    fake = _PreferencesDialog.__new__(_PreferencesDialog)
+    fake._on_clear_history = None
+    fake._on_clear_bookmarks = None
+    fake._thread_var = MagicMock()
+    fake._retry_var = MagicMock()
+    fake._wait_var = MagicMock()
+    fake._log_var = MagicMock()
+
+    button_states: list[str] = []
+
+    def _capture_button(*args: object, **kwargs: object) -> MagicMock:
+        if "state" in kwargs:
+            button_states.append(str(kwargs["state"]))
+        return MagicMock()
+
+    with (
+        patch.object(ttk_mod, "LabelFrame"),
+        patch.object(ttk_mod, "Frame"),
+        patch.object(ttk_mod, "Button", side_effect=_capture_button),
+        patch.object(ttk_mod, "Label"),
+        patch.object(ttk_mod, "Entry"),
+    ):
+        _PreferencesDialog._build_ui(fake)
+
+    assert button_states == ["disabled", "disabled"]
+
+
+def test_preferences_dialog_build_ui_data_buttons_enabled_with_callbacks() -> None:
+    """_build_ui must mark both Data reset buttons as normal when callbacks are provided."""
+    from rbcopy.gui.preferences_dialog import _PreferencesDialog
+
+    fake = _PreferencesDialog.__new__(_PreferencesDialog)
+    fake._on_clear_history = MagicMock()
+    fake._on_clear_bookmarks = MagicMock()
+    fake._thread_var = MagicMock()
+    fake._retry_var = MagicMock()
+    fake._wait_var = MagicMock()
+    fake._log_var = MagicMock()
+
+    button_states: list[str] = []
+
+    def _capture_button(*args: object, **kwargs: object) -> MagicMock:
+        if "state" in kwargs:
+            button_states.append(str(kwargs["state"]))
+        return MagicMock()
+
+    with (
+        patch.object(ttk_mod, "LabelFrame"),
+        patch.object(ttk_mod, "Frame"),
+        patch.object(ttk_mod, "Button", side_effect=_capture_button),
+        patch.object(ttk_mod, "Label"),
+        patch.object(ttk_mod, "Entry"),
+    ):
+        _PreferencesDialog._build_ui(fake)
+
+    assert button_states == ["normal", "normal"]

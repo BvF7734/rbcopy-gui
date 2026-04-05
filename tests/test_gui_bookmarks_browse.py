@@ -278,6 +278,33 @@ def test_rebuild_bookmarks_menu_adds_separator() -> None:
     assert fake._bookmarks_menu.add_separator.call_count >= 1
 
 
+# ---------------------------------------------------------------------------
+# Gap: _bookmark_field shows error when add_bookmark returns False (lines 1429-1435)
+# ---------------------------------------------------------------------------
+
+
+def test_bookmark_field_shows_error_when_add_bookmark_fails() -> None:
+    """_bookmark_field shows an error dialog when add_bookmark returns False."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    fake = _make_fake_self()
+    fake.src_var.get.return_value = "C:/source"
+    fake._bookmarks_store = MagicMock(spec=BookmarksStore)
+    fake._bookmarks_store.add_bookmark.return_value = False
+
+    with (
+        patch("rbcopy.gui.main_window.simpledialog.askstring", return_value="My Bookmark"),
+        patch("rbcopy.gui.main_window.messagebox.showerror") as mock_err,
+    ):
+        RobocopyGUI._bookmark_field(fake, "source")
+
+    mock_err.assert_called_once()
+    # The error title should reference "Save Failed".
+    assert "Save Failed" in mock_err.call_args.args[0]
+    # _rebuild_bookmarks_menu must NOT be called on failure.
+    fake._rebuild_bookmarks_menu.assert_not_called()
+
+
 def test_rebuild_bookmarks_menu_placeholder_when_empty() -> None:
     """_rebuild_bookmarks_menu adds a disabled placeholder when no bookmarks exist."""
     from rbcopy.bookmarks import BookmarksStore

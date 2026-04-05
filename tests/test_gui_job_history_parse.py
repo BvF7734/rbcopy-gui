@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import tkinter as tk
 from typing import Any
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 
 from tests.helpers import StringVarStub as _StringVarStub
 
@@ -177,3 +179,42 @@ def test_job_history_window_on_select_large_file_shows_tail(tmp_path: Path) -> N
     inserted = "".join(str(c.args[-1]) for c in calls)
     assert "showing last" in inserted
     assert "LAST_LINE_SENTINEL" in inserted
+
+
+# ---------------------------------------------------------------------------
+# _JobHistoryWindow constructor and _build_ui (lines 89-107, 117-221)
+# ---------------------------------------------------------------------------
+
+
+def test_job_history_window_init_creates_window_with_real_tk(tmp_path: Path) -> None:
+    """Instantiating _JobHistoryWindow exercises __init__ and _build_ui (lines 89-107, 117-221).
+
+    A real ``tk.Toplevel`` is created here, which is required for the Tk widget
+    construction inside ``_build_ui`` to succeed.  The test is skipped
+    automatically on headless systems where Tkinter cannot open a display
+    connection.
+    """
+    try:
+        root = tk.Tk()
+        root.withdraw()
+    except tk.TclError as exc:
+        pytest.skip(f"Tkinter display not available: {exc}")
+
+    try:
+        # Empty log directory: _refresh() returns early without spawning a thread,
+        # so there is no background activity to race against teardown.
+        win = _JobHistoryWindow(root, tmp_path)
+
+        # Verify the window was configured correctly by __init__.
+        assert win.title() == "Job History"
+        # Basic UI attributes installed by _build_ui must be present.
+        assert hasattr(win, "_tree")
+        assert hasattr(win, "_content")
+        assert hasattr(win, "_filter_var")
+        assert hasattr(win, "_search_var")
+    finally:
+        try:
+            win.destroy()  # type: ignore[possibly-undefined]
+        except Exception:
+            pass
+        root.destroy()
