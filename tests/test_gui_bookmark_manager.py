@@ -716,3 +716,68 @@ def test_bookmark_manager_edit_cancelled_does_nothing(tmp_path: Path) -> None:
     assert store.get_bookmark("Stay") is not None
     win._on_change.assert_not_called()
     win._refresh.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _BookmarkManagerWindow.__init__ – without a real display
+# ---------------------------------------------------------------------------
+
+
+def test_bookmark_manager_init_stores_attributes(tmp_path: Path) -> None:
+    """__init__ assigns store/on_change/on_apply and calls _build_ui then _refresh."""
+    from rbcopy.bookmarks import BookmarksStore
+    from rbcopy.gui.bookmark_manager import _BookmarkManagerWindow
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    on_change = MagicMock()
+    on_apply = MagicMock()
+    build_calls: list[bool] = []
+    refresh_calls: list[bool] = []
+
+    def _spy_build(self: Any) -> None:
+        build_calls.append(True)
+
+    def _spy_refresh(self: Any) -> None:
+        refresh_calls.append(True)
+
+    with (
+        patch.object(tk.Toplevel, "__init__", return_value=None),
+        patch.object(tk.Toplevel, "title"),
+        patch.object(tk.Toplevel, "minsize"),
+        patch.object(_BookmarkManagerWindow, "_build_ui", _spy_build),
+        patch.object(_BookmarkManagerWindow, "_refresh", _spy_refresh),
+    ):
+        win = _BookmarkManagerWindow(MagicMock(), store, on_change=on_change, on_apply=on_apply)
+
+    assert win._store is store
+    assert win._on_change is on_change
+    assert win._on_apply is on_apply
+    assert build_calls == [True]
+    assert refresh_calls == [True]
+
+
+# ---------------------------------------------------------------------------
+# _BookmarkManagerWindow._build_ui – without a real display
+# ---------------------------------------------------------------------------
+
+
+def test_bookmark_manager_build_ui_assigns_tree_attribute(tmp_path: Path) -> None:
+    """_build_ui creates a Treeview and assigns it to self._tree."""
+    import rbcopy.gui.bookmark_manager as bm_module
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+
+    mock_treeview = MagicMock()
+
+    with (
+        patch.object(bm_module.ttk, "Frame", return_value=MagicMock()),
+        patch.object(bm_module.ttk, "Button", return_value=MagicMock()),
+        patch.object(bm_module.ttk, "Separator", return_value=MagicMock()),
+        patch.object(bm_module.ttk, "Treeview", return_value=mock_treeview),
+        patch.object(bm_module.ttk, "Scrollbar", return_value=MagicMock()),
+    ):
+        win._build_ui()
+
+    assert win._tree is mock_treeview
