@@ -8,8 +8,8 @@ authors = [{ "name" = "bvf7734" }]
 dynamic = ["version"]
 
 dependencies = [
-  "pydantic~=2.0",
-  "pydantic-settings>=2.0",
+  "pydantic~=2.12",
+  "pydantic-settings>=2.13.1",
   "rich",
   "tkinterdnd2",
   "typer",
@@ -32,13 +32,13 @@ dev = [
   "pytest-pretty",
   "ruamel.yaml",
   "ruff",
-  "setuptools-scm>=9.2.2",
+  "setuptools-scm>=10.0.5",
   "tombi",
   "uv",
 ]
 
 [build-system]
-requires = ["setuptools>=67.0", "setuptools_scm[toml]>=7.1"]
+requires = ["setuptools>=82.0.1", "setuptools_scm[toml]>=10.0.5"]
 build-backend = "setuptools.build_meta"
 
 [tool.coverage.run]
