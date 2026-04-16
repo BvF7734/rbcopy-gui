@@ -679,3 +679,127 @@ def test_async_execute_skips_summary_card_when_parse_returns_none(tmp_path: Path
 
     all_output = " ".join(call.args[0] for call in fake_self._append_output.call_args_list)
     assert "Job summary" not in all_output
+
+
+# ---------------------------------------------------------------------------
+# Gap: _on_properties_only_toggle – unregistered forced flags/params
+# ---------------------------------------------------------------------------
+
+
+def test_props_only_toggle_activation_skips_unregistered_forced_flag() -> None:
+    """_on_properties_only_toggle silently skips a PROPERTIES_ONLY_FLAG that is not in
+    _flag_vars (false branch of 'if flag in self._flag_vars:', branch L981->980)."""
+    from rbcopy.builder import PROPERTIES_ONLY_PARAMS
+
+    fake = _make_fake_self()
+    fake._is_applying_preset = False
+    fake._saved_dst = ""
+    fake._saved_flags = {}
+    fake._saved_params = {}
+    fake._props_only_var.get.return_value = True
+
+    # _flag_vars is empty — none of PROPERTIES_ONLY_FLAGS are registered.
+    fake._flag_vars = {}
+    fake._param_vars = {flag: (MagicMock(), MagicMock(), MagicMock()) for flag in PROPERTIES_ONLY_PARAMS}
+
+    # Should not raise even though no forced flags are registered.
+    RobocopyGUI._on_properties_only_toggle(fake)
+
+
+def test_props_only_toggle_activation_skips_unregistered_forced_param() -> None:
+    """_on_properties_only_toggle silently skips a PROPERTIES_ONLY_PARAM that is not in
+    _param_vars (false branch of 'if flag in self._param_vars:', branch L985->984)."""
+    from rbcopy.builder import PROPERTIES_ONLY_FLAGS
+
+    fake = _make_fake_self()
+    fake._is_applying_preset = False
+    fake._saved_dst = ""
+    fake._saved_flags = {}
+    fake._saved_params = {}
+    fake._props_only_var.get.return_value = True
+
+    fake._flag_vars = {flag: MagicMock() for flag in PROPERTIES_ONLY_FLAGS}
+    # _param_vars is empty — none of PROPERTIES_ONLY_PARAMS are registered.
+    fake._param_vars = {}
+
+    # Should not raise even though no forced params are registered.
+    RobocopyGUI._on_properties_only_toggle(fake)
+
+
+def test_props_only_toggle_deactivation_skips_unregistered_saved_flag() -> None:
+    """_on_properties_only_toggle silently skips a saved flag not in _flag_vars during
+    deactivation (false branch of 'if flag in self._flag_vars:', branch L993->992)."""
+    fake = _make_fake_self()
+    fake._is_applying_preset = False
+    fake._props_only_var.get.return_value = False
+    fake._saved_dst = ""
+    # /NOTREAL is in saved state but not in _flag_vars.
+    fake._saved_flags = {"/NOTREAL": True}
+    fake._saved_params = {}
+    fake._flag_vars = {}
+    fake._param_vars = {}
+
+    # Should not raise.
+    RobocopyGUI._on_properties_only_toggle(fake)
+
+
+def test_props_only_toggle_deactivation_skips_unregistered_saved_param() -> None:
+    """_on_properties_only_toggle silently skips a saved param not in _param_vars during
+    deactivation (false branch of 'if flag in self._param_vars:', branch L996->995)."""
+    fake = _make_fake_self()
+    fake._is_applying_preset = False
+    fake._props_only_var.get.return_value = False
+    fake._saved_dst = ""
+    fake._saved_flags = {}
+    # /NOTREAL is in saved state but not in _param_vars.
+    fake._saved_params = {"/NOTREAL": (True, "val")}
+    fake._flag_vars = {}
+    fake._param_vars = {}
+
+    # Should not raise.
+    RobocopyGUI._on_properties_only_toggle(fake)
+
+
+# ---------------------------------------------------------------------------
+# Gap: _refresh_widget_states – param without a param_cb entry
+# ---------------------------------------------------------------------------
+
+
+def test_refresh_widget_states_forced_param_without_param_cb() -> None:
+    """When _param_cbs has no entry for a forced param in Properties Only mode,
+    _refresh_widget_states skips the checkbutton config call (branch L1040->1042)."""
+    from rbcopy.builder import PROPERTIES_ONLY_PARAMS
+
+    forced_flag = next(iter(PROPERTIES_ONLY_PARAMS))
+
+    fake = _make_fake_self_for_refresh()
+    fake._props_only_var.get.return_value = True
+    ev = MagicMock()
+    ev.get.return_value = False
+    entry = MagicMock()
+    fake._param_vars[forced_flag] = (ev, MagicMock(), entry)
+    # Deliberately omit forced_flag from _param_cbs so param_cb is None.
+    fake._param_cbs = {}
+
+    # Should not raise.
+    RobocopyGUI._refresh_widget_states(fake)
+
+    entry.config.assert_called_with(state="disabled")
+
+
+def test_refresh_widget_states_normal_param_without_param_cb() -> None:
+    """When _param_cbs has no entry for a normal (non-forced) param, _refresh_widget_states
+    skips the checkbutton config call (branch L1046->1048)."""
+    fake = _make_fake_self_for_refresh()
+    fake._props_only_var.get.return_value = False
+    ev = MagicMock()
+    ev.get.return_value = True  # param is enabled → entry should be "normal"
+    entry = MagicMock()
+    fake._param_vars["/CUSTOM"] = (ev, MagicMock(), entry)
+    # Deliberately omit /CUSTOM from _param_cbs so param_cb is None.
+    fake._param_cbs = {}
+
+    # Should not raise.
+    RobocopyGUI._refresh_widget_states(fake)
+
+    entry.config.assert_called_with(state="normal")

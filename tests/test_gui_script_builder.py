@@ -438,3 +438,19 @@ def test_browse_dir_does_not_update_var_when_cancelled() -> None:
         _ScriptExportDialog._browse_dir(fake)
 
     fake._dir_var.set.assert_not_called()
+
+
+def test_on_save_does_not_add_ps1_when_extension_already_present(tmp_path: Path) -> None:
+    """_on_save must not double-add .ps1 when the file name already ends with .ps1
+    (false branch of 'if not name.lower().endswith(".ps1"):', branch L105->118)."""
+    from rbcopy.gui.script_builder import _ScriptExportDialog
+
+    fake = _make_fake_dialog(tmp_path)
+    fake._type_var.get.return_value = "powershell"
+    fake._name_var.get.return_value = "my_script.ps1"  # extension already present
+
+    with patch("rbcopy.gui.script_builder.messagebox.showinfo"):
+        _ScriptExportDialog._on_save(fake)
+
+    assert (tmp_path / "my_script.ps1").exists()
+    assert not (tmp_path / "my_script.ps1.ps1").exists()

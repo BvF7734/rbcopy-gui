@@ -781,3 +781,69 @@ def test_bookmark_manager_build_ui_assigns_tree_attribute(tmp_path: Path) -> Non
         win._build_ui()
 
     assert win._tree is mock_treeview
+
+
+# ---------------------------------------------------------------------------
+# _set_as_source / _set_as_destination with no on_apply callback
+# ---------------------------------------------------------------------------
+
+
+def test_set_as_source_noop_when_on_apply_is_none(tmp_path: Path) -> None:
+    """_set_as_source does nothing when _on_apply is None (branch L378->exit)."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("Alpha", r"C:\alpha")
+
+    win = _make_bookmark_manager_win(store)
+    win._on_apply = None
+    win._tree.selection.return_value = ("iid1",)
+    win._tree.set = MagicMock(return_value="Alpha")
+
+    # Should not raise and should not call a nonexistent callback.
+    win._set_as_source()  # type: ignore[attr-defined]
+
+
+def test_set_as_destination_noop_when_on_apply_is_none(tmp_path: Path) -> None:
+    """_set_as_destination does nothing when _on_apply is None (branch L386->exit)."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    store.add_bookmark("Beta", r"C:\beta")
+
+    win = _make_bookmark_manager_win(store)
+    win._on_apply = None
+    win._tree.selection.return_value = ("iid1",)
+    win._tree.set = MagicMock(return_value="Beta")
+
+    # Should not raise and should not call a nonexistent callback.
+    win._set_as_destination()  # type: ignore[attr-defined]
+
+
+def test_notify_change_noop_when_on_change_is_none(tmp_path: Path) -> None:
+    """_notify_change does nothing when _on_change is None (branch L395->exit)."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+    win._on_change = None
+
+    # Should not raise.
+    win._notify_change()  # type: ignore[attr-defined]
+
+
+def test_select_by_name_noop_when_no_match(tmp_path: Path) -> None:
+    """_select_by_name exhausts the loop without selecting anything when no row matches (branch L400->exit)."""
+    from rbcopy.bookmarks import BookmarksStore
+
+    store = BookmarksStore(path=tmp_path / "bookmarks.json")
+    win = _make_bookmark_manager_win(store)
+
+    # Tree has two items but neither matches "Ghost".
+    win._tree.get_children.return_value = ("iid1", "iid2")
+    win._tree.set = MagicMock(side_effect=lambda iid, col: "Alpha" if iid == "iid1" else "Beta")
+
+    # Should not raise and should not call selection_set.
+    win._select_by_name("Ghost")  # type: ignore[attr-defined]
+
+    win._tree.selection_set.assert_not_called()

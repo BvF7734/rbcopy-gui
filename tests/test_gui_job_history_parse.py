@@ -218,3 +218,24 @@ def test_job_history_window_init_creates_window_with_real_tk(tmp_path: Path) -> 
         except Exception:
             pass
         root.destroy()
+
+
+# ---------------------------------------------------------------------------
+# _parse_log_exit_code – METADATA_TAG present but METADATA_RE does not match
+# ---------------------------------------------------------------------------
+
+
+def test_parse_log_exit_code_metadata_tag_without_regex_match(tmp_path: Path) -> None:
+    """_parse_log_exit_code continues past a line that has the metadata tag but lacks the
+    closing ' ===' sentinel, so _METADATA_RE does not match (branch L50->63)."""
+
+    log = tmp_path / "robocopy_job_20240103_120000.log"
+    # The tag is present but there is no closing ' ===' — the regex requires it.
+    log.write_text(
+        "2024-01-03 12:00:00 [DEBUG   ] rbcopy.gui: === RBCOPY_METADATA: no closing sentinel\n"
+        "2024-01-03 12:00:01 [INFO    ] rbcopy.gui: robocopy finished with exit code 4\n",
+        encoding="utf-8",
+    )
+
+    # The malformed metadata line is skipped; the legacy regex line is used instead.
+    assert _parse_log_exit_code(log) == 4

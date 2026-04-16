@@ -650,3 +650,64 @@ def test_rebuild_custom_menu_no_info_item_when_description_empty() -> None:
     for call in sub_mock.add_command.call_args_list:
         label = call.kwargs.get("label", "")
         assert "\u2139" not in label, f"Unexpected info item found: {label!r}"
+
+
+# ---------------------------------------------------------------------------
+# _on_preset_selected – branches when preset name is not in the store
+# ---------------------------------------------------------------------------
+
+
+def test_on_preset_selected_does_nothing_for_unknown_preset_name(tmp_path: Path) -> None:
+    """_on_preset_selected resets the combo when the chosen name has no matching preset
+    (false branch of 'if preset is not None:', branch L880->883)."""
+    from rbcopy.presets import CustomPresetsStore
+
+    fake = _make_fake_self()
+    fake._presets_store = CustomPresetsStore(path=tmp_path / "presets.json")
+    fake._preset_var = MagicMock()
+    fake._preset_var.get.return_value = "DeletedPreset"
+    fake._preset_combo = MagicMock()
+
+    # Should not raise; no preset is applied.
+    RobocopyGUI._on_preset_selected(fake, MagicMock())
+
+    fake._preset_var.set.assert_called_with("")
+    fake._preset_combo.set.assert_called_with("")
+    fake._apply_custom_preset.assert_not_called()
+
+
+def test_on_preset_selected_with_preset_combo_none(tmp_path: Path) -> None:
+    """_on_preset_selected does not call .set() on _preset_combo when it is None
+    (false branch of 'if self._preset_combo is not None:', branch L884->exit)."""
+    from rbcopy.presets import CustomPresetsStore
+
+    fake = _make_fake_self()
+    fake._presets_store = CustomPresetsStore(path=tmp_path / "presets.json")
+    fake._preset_var = MagicMock()
+    fake._preset_var.get.return_value = "AnyName"
+    fake._preset_combo = None
+
+    # Should not raise.
+    RobocopyGUI._on_preset_selected(fake, MagicMock())
+
+    fake._preset_var.set.assert_called_with("")
+
+
+def test_apply_custom_preset_skips_unregistered_param_flag(tmp_path: Path) -> None:
+    """_apply_custom_preset silently skips a preset param whose flag is not in _param_vars
+    (false branch of 'if flag in self._param_vars:', branch L1338->1337)."""
+    from rbcopy.presets import CustomPreset, CustomPresetsStore
+
+    fake = _make_fake_self()
+    fake._presets_store = CustomPresetsStore(path=tmp_path / "presets.json")
+    fake._props_only_var = MagicMock()
+    fake._props_only_var.get.return_value = False
+    fake._is_applying_preset = False
+    fake._flag_vars = {}
+    fake._param_vars = {}  # "/R" is not registered
+
+    # Preset references /R param which doesn't exist in _param_vars.
+    preset = CustomPreset(name="Test", params={"/R": (True, "3")})
+
+    # Should not raise.
+    RobocopyGUI._apply_custom_preset(fake, preset)

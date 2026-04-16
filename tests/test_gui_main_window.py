@@ -1025,3 +1025,136 @@ def test_exit_swallows_oserror_from_kill() -> None:
 
     mock_proc.kill.assert_called_once()
     fake_self.destroy.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _exit – no _proc_done_event (branch L1780->1787)
+# ---------------------------------------------------------------------------
+
+
+def test_exit_with_running_process_and_no_done_event() -> None:
+    """_exit terminates the process and proceeds even when _proc_done_event is None
+    (false branch of 'if done is not None:', branch L1780->1787)."""
+    fake_self = _make_fake_self()
+    mock_proc = MagicMock()
+    mock_proc.returncode = None
+    mock_proc.pid = 1111
+    fake_self._current_proc = mock_proc
+    fake_self._proc_done_event = None  # no event set up
+
+    RobocopyGUI._exit(fake_self)
+
+    mock_proc.terminate.assert_called_once()
+    # kill() must NOT be called since we could not wait for the process.
+    mock_proc.kill.assert_not_called()
+    fake_self.destroy.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# launch() – same log dir does not produce a warning (branch L44->58)
+# ---------------------------------------------------------------------------
+
+
+def test_launch_same_log_dir_does_not_warn(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """launch() does not log a warning when the FileHandler already writes to the
+    requested log directory (false branch of 'if current_log_dir != log_dir:', L44->58)."""
+    import rbcopy.gui as gui_module
+
+    monkeypatch.setattr(gui_module, "RobocopyGUI", MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr(gui_module, "rotate_logs", MagicMock())
+
+    # FileHandler pointing to tmp_path — same directory that setup_logging would return.
+    log_file = tmp_path / "session.log"
+    log_file.touch()
+    handler = logging.FileHandler(str(log_file))
+    dummy_logger = logging.getLogger("rbcopy._test_same_dir")
+    dummy_logger.addHandler(handler)
+
+    try:
+
+        def stubbed_setup(log_dir: Any = None) -> logging.Logger:
+            # Return the logger whose handler points to the same dir as log_dir.
+            return dummy_logger
+
+        monkeypatch.setattr(gui_module, "setup_logging", stubbed_setup)
+        # Patch get_log_dir to return tmp_path (same as the handler dir).
+        monkeypatch.setattr(
+            "rbcopy.app_dirs.get_log_dir",
+            MagicMock(return_value=tmp_path),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="rbcopy.gui"):
+            gui_module.launch()
+
+    finally:
+        handler.close()
+        dummy_logger.removeHandler(handler)
+
+    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert not any("already configured" in msg.lower() for msg in warning_messages)
+
+
+# ---------------------------------------------------------------------------
+# launch() – windll is None (branch L63->68)
+# ---------------------------------------------------------------------------
+
+
+def test_launch_skips_dpi_when_windll_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """launch() must not raise when ctypes.windll is None (non-Windows or old platform),
+    covering the false branch of 'if windll is not None:' (branch L63->68)."""
+    import rbcopy.gui as gui_module
+
+    monkeypatch.setattr(gui_module, "RobocopyGUI", MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr(gui_module, "rotate_logs", MagicMock())
+
+    dummy_logger = logging.getLogger("rbcopy._test_windll_none")
+    monkeypatch.setattr(gui_module, "setup_logging", MagicMock(return_value=dummy_logger))
+
+    # Force getattr(ctypes, "windll", None) to return None.
+    import ctypes as ctypes_mod
+
+    monkeypatch.setattr(ctypes_mod, "windll", None, raising=False)
+
+    # Should not raise.
+    gui_module.launch()
+
+
+# ---------------------------------------------------------------------------
+# _PresetDropdownTooltip._show – text changed while window is visible (L289->291)
+# ---------------------------------------------------------------------------
+
+
+def test_preset_dropdown_tooltip_show_recreates_when_text_changes() -> None:
+    """_PresetDropdownTooltip._show calls _hide and recreates the window when the
+    tooltip text differs from what is currently displayed (branch L289->291)."""
+    from rbcopy.gui.main_window import _PresetDropdownTooltip
+
+    tip: Any = _PresetDropdownTooltip.__new__(_PresetDropdownTooltip)
+    tip._combo = MagicMock()
+    tip._get_descriptions = MagicMock(return_value={})
+    tip._FONT_SIZE = 9
+    tip._WRAP_LENGTH = 320
+
+    # Simulate an existing tooltip window showing "old text".
+    mock_tip_window = MagicMock()
+    mock_label = MagicMock()
+    mock_label.cget.return_value = "old text"
+    mock_tip_window.winfo_children.return_value = [mock_label]
+    tip._tip_window = mock_tip_window
+
+    tip._hide = MagicMock()
+
+    with (
+        patch("rbcopy.gui.main_window.tk.Toplevel") as mock_toplevel,
+        patch("rbcopy.gui.main_window.tk.Label") as mock_label_cls,
+    ):
+        mock_tw = MagicMock()
+        mock_toplevel.return_value = mock_tw
+        mock_label_cls.return_value = MagicMock()
+        # Show with a DIFFERENT text — the early-return guard should NOT trigger.
+        tip._show(100, 200, "new text")
+
+    # _hide must be called once to destroy the old window before creating a new one.
+    tip._hide.assert_called_once()

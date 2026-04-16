@@ -445,3 +445,16 @@ def test_format_card_starts_and_ends_with_newline() -> None:
     card = _make_summary().format_card()
     assert card.startswith("\n")
     assert card.endswith("\n")
+
+
+def test_format_card_omits_files_row_when_files_copied_is_none() -> None:
+    """Files row is absent when files_copied is None (branch L160->170)."""
+    card = _make_summary(files_copied=None, files_total=None, files_skipped=None, files_failed=None).format_card()
+    assert "  Files     " not in card
+
+
+def test_format_card_speed_without_mb_per_min() -> None:
+    """Speed row shows only Bytes/sec when speed_mb_min is None (branch L188->190)."""
+    card = _make_summary(speed_mb_min=None).format_card()
+    assert "Bytes/sec" in card
+    assert "MB/min" not in card

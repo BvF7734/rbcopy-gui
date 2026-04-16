@@ -325,3 +325,92 @@ def test_mousewheel_scroll_handler_fires_without_error(gui: RobocopyGUI) -> None
     """A synthetic MouseWheel event must invoke the main canvas scroll handler without error."""
     gui.event_generate("<MouseWheel>", delta=120)
     gui.update()
+
+
+# ---------------------------------------------------------------------------
+# _build_flags – flag without a tooltip (branch L790->783)
+# ---------------------------------------------------------------------------
+
+
+def test_build_flags_skips_tooltip_for_flag_without_entry() -> None:
+    """When FLAG_OPTIONS contains a flag that has no corresponding entry in
+    FLAG_TOOLTIPS, _build_flags must skip the _ToolTip call without raising
+    (false branch of 'if flag in FLAG_TOOLTIPS:', branch L790->783)."""
+    from unittest.mock import patch
+
+    from rbcopy.builder import FLAG_OPTIONS, FLAG_TOOLTIPS
+
+    try:
+        # Inject a fake flag that has no tooltip.
+        fake_options = [("/__NOTIP__", "No-tooltip flag")] + list(FLAG_OPTIONS)
+        fake_tooltips = {k: v for k, v in FLAG_TOOLTIPS.items() if k != "/__NOTIP__"}
+
+        with (
+            patch("rbcopy.gui.main_window.FLAG_OPTIONS", fake_options),
+            patch("rbcopy.gui.main_window.FLAG_TOOLTIPS", fake_tooltips),
+        ):
+            app = RobocopyGUI()
+        app.withdraw()
+        # The fake flag must be registered and the GUI must start without error.
+        assert "/__NOTIP__" in app._flag_vars
+        app.destroy()
+    except tk.TclError as exc:
+        pytest.skip(f"Tkinter display not available: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# _build_params – param without a tooltip (branch L840->845)
+# ---------------------------------------------------------------------------
+
+
+def test_build_params_skips_tooltip_for_param_without_entry() -> None:
+    """When PARAM_OPTIONS contains a param that has no corresponding entry in
+    PARAM_TOOLTIPS, _build_params must skip the _ToolTip call without raising
+    (false branch of 'if flag in PARAM_TOOLTIPS:', branch L840->845)."""
+    from unittest.mock import patch
+
+    from rbcopy.builder import PARAM_OPTIONS, PARAM_TOOLTIPS
+
+    try:
+        fake_options = [("/__NOTIPM__", "No-tooltip param", "")] + list(PARAM_OPTIONS)
+        fake_tooltips = {k: v for k, v in PARAM_TOOLTIPS.items() if k != "/__NOTIPM__"}
+
+        with (
+            patch("rbcopy.gui.main_window.PARAM_OPTIONS", fake_options),
+            patch("rbcopy.gui.main_window.PARAM_TOOLTIPS", fake_tooltips),
+        ):
+            app = RobocopyGUI()
+        app.withdraw()
+        assert "/__NOTIPM__" in app._param_vars
+        app.destroy()
+    except tk.TclError as exc:
+        pytest.skip(f"Tkinter display not available: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# _build_ui – SUPERSEDES flag not in _flag_vars (branch L542->541)
+# ---------------------------------------------------------------------------
+
+
+def test_build_ui_skips_trace_for_supersedes_flag_not_in_flag_vars() -> None:
+    """When SUPERSEDES contains a flag that is not in FLAG_OPTIONS (and thus not
+    registered in _flag_vars), _build_ui must skip the trace_add call without
+    raising (false branch of 'if sup_flag in self._flag_vars:', branch L542->541)."""
+    from unittest.mock import patch
+
+    try:
+        # Inject a fake superseding flag that will never appear in _flag_vars.
+        fake_supersedes = {"/__FAKESUP__": frozenset({"/E"})}
+        import rbcopy.builder as builder_mod
+
+        real_supersedes = dict(builder_mod.SUPERSEDES)
+        fake_supersedes.update(real_supersedes)
+
+        with patch("rbcopy.gui.main_window.SUPERSEDES", fake_supersedes):
+            app = RobocopyGUI()
+        app.withdraw()
+        # The GUI must start normally; the fake key is absent from _flag_vars.
+        assert "/__FAKESUP__" not in app._flag_vars
+        app.destroy()
+    except tk.TclError as exc:
+        pytest.skip(f"Tkinter display not available: {exc}")

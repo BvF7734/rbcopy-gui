@@ -128,6 +128,20 @@ def test_get_log_dir_returns_parent_of_handler_file(tmp_path: Path) -> None:
     assert result == tmp_path
 
 
+def test_get_log_dir_returns_none_with_non_file_handler() -> None:
+    """_get_log_dir returns None when only a StreamHandler is present (branch L1756->1755)."""
+    fake = _make_fake_self()
+    stream_handler = logging.StreamHandler()
+
+    with patch("rbcopy.gui.main_window.logging.getLogger") as mock_get_logger:
+        mock_logger = MagicMock()
+        mock_logger.handlers = [stream_handler]
+        mock_get_logger.return_value = mock_logger
+        result = RobocopyGUI._get_log_dir(fake)
+
+    assert result is None
+
+
 def test_open_job_history_shows_info_when_no_log_dir() -> None:
     """_open_job_history shows an info dialog when no log directory is available."""
     fake = _make_fake_self()
