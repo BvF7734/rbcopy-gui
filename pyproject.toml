@@ -82,4 +82,4 @@ fallback_version = "0.0.0-dev"
 version_file = "rbcopy/_version.py"
 
 [tool.uv]
-exclude-newer = "2026-03-25T00:00:00Z"
+exclude-newer = "2026-04-16T00:00:00Z"
